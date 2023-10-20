@@ -86,7 +86,7 @@ def create_user(student: Student):
             return JSONResponse(status_code=400, content={"message": "Student already exists."})
 
 
-@app.get(path="/verify-student  ")
+@app.get(path="/verify-student")
 def get_user(matric_number: str, password: str):
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
@@ -111,9 +111,9 @@ def handler_generate_registration_options(matric_number: str):
 
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
-            insert_into_students_table_sql = "INSERT INTO students (user_id, matric_number, registration_challenge) VALUES (%s, %s, %s)"
-            cursor.execute(insert_into_students_table_sql,
-                           (user_id, matric_number, registration_challenge))
+            update_students_table_sql = "UPDATE students SET user_id = %s, registration_challenge = %s WHERE matric_number = %s;"
+            cursor.execute(update_students_table_sql,
+                           (user_id, registration_challenge, matric_number))
             connection.commit()
 
     options = generate_registration_options(
@@ -176,11 +176,11 @@ async def handler_veaify_registration_response(matric_number: str, request: Requ
         if i != lenght_transports - 1:
             transports_string += ","
 
-    insert_into_students_table_sql = "INSERT INTO students (credential_id, public_key, sign_count, transports) VALUES (%s, %s, %s, %s)"
+    update_students_table_sql = "UPDATE students SET credential_id = %s, public_key = %s, sign_count = %s, transports = %s WHERE matric_number = %s"
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(insert_into_students_table_sql, (verification.credential.id,
-                           verification.credential_public_key, verification.sign_count, transports_string))
+            cursor.execute(update_students_table_sql, (verification.credential.id,
+                           verification.credential_public_key, verification.sign_count, transports_string, matric_number))
             connection.commit()
 
     return JSONResponse(content={"verified": True})
@@ -202,7 +202,7 @@ def handler_generate_authentication_options(matric_number: str):
                 return JSONResponse(status_code=404, content=response_data)
 
             credential_id, transports = result
-            insert_auth_challenge_into_students_table_sql = "INSERT INTO students (authentication_challenge) VALUES (%s) WHERE matric_number = %s"
+            insert_auth_challenge_into_students_table_sql = "UPDATE students SET authentication_challenge = %s WHERE matric_number = %s"
             cursor.execute(insert_auth_challenge_into_students_table_sql,
                            (authentication_challenge, matric_number))
             connection.commit()

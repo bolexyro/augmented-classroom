@@ -18,7 +18,7 @@ conn = psycopg2.connect(database=db,
 # SQL statement to create the table
 create_table_sql = """
 CREATE TABLE students(
-matric_number CHAR(10),
+matric_number CHAR(10) PRIMARY KEY,
 password TEXT,
 credential_id bytea,
 public_key bytea,
