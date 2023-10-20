@@ -59,7 +59,7 @@ def get_user(username: str, password: str):
             cursor.execute(select_user_info_from_students_table, (username, ))
             result = cursor.fetchone()
             if not result:
-                response_data = {"message": "Username not found."}
+                response_data = {"message": "matric_number not found."}
                 return JSONResponse(status_code=404, content=response_data)
             retrieved_username, retrieved_password = result
             if retrieved_password != password:

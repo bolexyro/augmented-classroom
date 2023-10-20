@@ -24,10 +24,12 @@ credential_id bytea,
 public_key bytea,
 sign_count INTEGER,
 user_id BIGINT,
-username TEXT,
 transports TEXT,
-reg_challenge bytea,
-auth_challenge bytea
+registration_challenge bytea,
+authentication_challenge bytea,
+first_name TEXT,
+last_name TEXT,
+email TEXT
 )
 """
 
