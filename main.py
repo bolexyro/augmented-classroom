@@ -68,7 +68,7 @@ def home():
     return True
 
 
-@app.post(path="/create-user")
+@app.post(path="/create-student")
 def create_user(student: Student):
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
@@ -86,7 +86,7 @@ def create_user(student: Student):
             return JSONResponse(status_code=400, content={"message": "Student already exists."})
 
 
-@app.get(path="/verify-user")
+@app.get(path="/verify-student  ")
 def get_user(matric_number: str, password: str):
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
