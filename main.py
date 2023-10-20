@@ -133,7 +133,7 @@ def handler_generate_registration_options(matric_number: str):
             COSEAlgorithmIdentifier.ECDSA_SHA_256,
             COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,
         ],
-        timeout=30000
+        timeout=60000
     )
 
     return options_to_json(options)
@@ -164,6 +164,7 @@ async def handler_veaify_registration_response(matric_number: str, request: Requ
             expected_origin=origin,
         )
     except Exception as err:
+        print(err)
         raise HTTPException(status_code=400, detail=str(err))
 
     # I am meant to store the credential and the user attached to this credential
@@ -206,8 +207,8 @@ def handler_generate_authentication_options(matric_number: str):
             cursor.execute(insert_auth_challenge_into_students_table_sql,
                            (authentication_challenge, matric_number))
             connection.commit()
-
-    transports = transports.split(",")
+    if transports:
+        transports = transports.split(",")
 
     options = generate_authentication_options(
         rp_id=rp_id,
