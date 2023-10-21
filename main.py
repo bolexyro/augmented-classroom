@@ -140,7 +140,7 @@ def handler_generate_registration_options(matric_number: str):
 
 
 @app.post(path="/verify-registration-response")
-async def handler_veaify_registration_response(matric_number: str, request: Request):
+async def handler_verify_registration_response(matric_number: str, request: Request):
     body = await request.json()  # returns a json object
     credential = json.dumps(body, indent=4)  # returns  json string
     credential = json.loads(credential)
