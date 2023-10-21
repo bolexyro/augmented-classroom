@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import random
@@ -145,6 +145,8 @@ async def handler_veaify_registration_response(matric_number: str, request: Requ
     credential = json.dumps(body, indent=4)  # returns  json string
     credential = json.loads(credential)
 
+    print(credential)
+
     select_user_info_from_students_table_sql = "SELECT registration_challenge FROM students WHERE matric_number = %s"
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
@@ -153,10 +155,10 @@ async def handler_veaify_registration_response(matric_number: str, request: Requ
             result = cursor.fetchone()
             if not result:
                 response_data = {"message": "matric number not found."}
-                return JSONResponse(status_code=404, content=response_data)
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
             registration_challenge = bytes(result[0])
 
-            # registration_challenge = registration_challenge.decode("utf-8")
             print(registration_challenge)
 
     try:
