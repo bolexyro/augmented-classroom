@@ -154,8 +154,10 @@ async def handler_veaify_registration_response(matric_number: str, request: Requ
             if not result:
                 response_data = {"message": "matric number not found."}
                 return JSONResponse(status_code=404, content=response_data)
-            registration_challenge = result[0]
-            registration_challenge = registration_challenge.decode("utf-8")
+            registration_challenge = bytes(result[0])
+
+            # registration_challenge = registration_challenge.decode("utf-8")
+            print(registration_challenge)
 
     try:
         verification = verify_registration_response(
