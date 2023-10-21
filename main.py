@@ -160,7 +160,7 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
             registration_challenge = bytes(result[0])
 
             print(registration_challenge)
-    # try:
+    try:
         verification = verify_registration_response(
             credential=credential,
             expected_challenge=registration_challenge,
@@ -168,9 +168,9 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
             expected_origin=origin,
         )
 
-    # except Exception as err:
-        # print(err, registration_challenge)
-        # raise HTTPException(status_code=400, detail=str(err))
+    except Exception as err:
+        print(err, registration_challenge)
+        raise HTTPException(status_code=400, detail=str(err))
 
     # I am meant to store the credential and the user attached to this credential
 
