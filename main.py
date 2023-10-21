@@ -185,7 +185,7 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
     update_students_table_sql = "UPDATE students SET credential_id = %s, public_key = %s, sign_count = %s, transports = %s WHERE matric_number = %s"
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(update_students_table_sql, (verification.credential.id,
+            cursor.execute(update_students_table_sql, (verification.credential_id,
                            verification.credential_public_key, verification.sign_count, transports_string, matric_number))
             connection.commit()
 
