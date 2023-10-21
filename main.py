@@ -83,7 +83,8 @@ def create_user(student: Student):
                 connection.commit()
                 response_data = {"message": "Student created."}
                 return JSONResponse(status_code=200, content=response_data)
-            return JSONResponse(status_code=400, content={"message": "Student already exists."})
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={
+                                "message": "Student already exists."})
 
 
 @app.get(path="/verify-student")
@@ -96,11 +97,13 @@ def get_user(matric_number: str, password: str):
             result = cursor.fetchone()
             if not result:
                 response_data = {"message": "matric number not found."}
-                return JSONResponse(status_code=404, content=response_data)
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
             retrieved_matric_number, retrieved_password = result
             if retrieved_password != password:
                 response_data = {"Incorrect password."}
-                return JSONResponse(status_code=401, content=response_data)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail=response_data)
             return JSONResponse(status_code=200, content={"message": "Login successful."})
 
 
@@ -145,8 +148,6 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
     credential = json.dumps(body, indent=4)  # returns  json string
     credential = json.loads(credential)
 
-    print(credential)
-
     select_user_info_from_students_table_sql = "SELECT registration_challenge FROM students WHERE matric_number = %s"
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
@@ -159,7 +160,6 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
                     status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
             registration_challenge = bytes(result[0])
 
-            print(registration_challenge)
     try:
         verification = verify_registration_response(
             credential=credential,
@@ -169,8 +169,7 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
         )
 
     except Exception as err:
-        print(err, registration_challenge)
-        raise HTTPException(status_code=400, detail=str(err))
+        print(err)
 
     # I am meant to store the credential and the user attached to this credential
 
@@ -189,7 +188,7 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
                            verification.credential_public_key, verification.sign_count, transports_string, matric_number))
             connection.commit()
 
-    return JSONResponse(content={"verified": True})
+    return JSONResponse(status_code=200, content={"verified": True})
 
 
 @app.get(path="/generate-authentication-options")
@@ -205,9 +204,11 @@ def handler_generate_authentication_options(matric_number: str):
 
             if not result:
                 response_data = {"message": "matric_number not found."}
-                return JSONResponse(status_code=404, content=response_data)
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
 
             credential_id, transports = result
+            credential_id = bytes(credential_id)
             insert_auth_challenge_into_students_table_sql = "UPDATE students SET authentication_challenge = %s WHERE matric_number = %s"
             cursor.execute(insert_auth_challenge_into_students_table_sql,
                            (authentication_challenge, matric_number))
@@ -247,9 +248,15 @@ async def hander_verify_authentication_response(matric_number: str, request: Req
 
                 if not result:
                     response_data = {"message": "matric_number not found."}
-                    return JSONResponse(status_code=404, content=response_data)
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
                 credential_id, authentication_challenge, public_key, sign_count = result
 
+        credential_id = bytes(credential_id)
+        authentication_challenge = bytes(authentication_challenge)
+        public_key = bytes(public_key)
+
+        user_credential = None
         if credential_id == raw_id_bytes:
             user_credential = True  # we could set it to anything as long as it is not None
 
