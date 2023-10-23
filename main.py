@@ -83,7 +83,7 @@ def create_user(student: Student):
                                 "message": "Student already exists."})
 
 
-@app.get(path="/verify-student")
+@app.post(path="/verify-student")
 def get_user(student: Student):
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
