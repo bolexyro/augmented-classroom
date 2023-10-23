@@ -75,7 +75,7 @@ def create_user(student: Student):
             if not result:
                 insert_new_student_info_into_students_table_sql = "INSERT INTO students(matric_number, password) VALUES (%s, %s)"
                 cursor.execute(insert_new_student_info_into_students_table_sql,
-                               (student.matric_number, student.password))
+                               (student.matric_number, student.password.upper))
                 connection.commit()
                 response_data = {"message": "Student created."}
                 return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
@@ -96,8 +96,8 @@ def get_user(student: Student):
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
             retrieved_matric_number, retrieved_password = result
-            if retrieved_password != student.password:
-                response_data = {"Incorrect password."}
+            if retrieved_password != student.password.upper():
+                response_data = {"message": "Incorrect password."}
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED, detail=response_data)
             return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Login successful."})
