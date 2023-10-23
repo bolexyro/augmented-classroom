@@ -75,7 +75,7 @@ def create_user(student: Student):
             if not result:
                 insert_new_student_info_into_students_table_sql = "INSERT INTO students(matric_number, password) VALUES (%s, %s)"
                 cursor.execute(insert_new_student_info_into_students_table_sql,
-                               (student.matric_number, student.password.upper))
+                               (student.matric_number, student.password.upper()))
                 connection.commit()
                 response_data = {"message": "Student created."}
                 return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
