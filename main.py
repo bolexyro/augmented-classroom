@@ -82,7 +82,7 @@ def create_user(student: Student):
                                (student.matric_number, student.password))
                 connection.commit()
                 response_data = {"message": "Student created."}
-                return JSONResponse(status_code=200, content=response_data)
+                return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={
                                 "message": "Student already exists."})
 
@@ -104,13 +104,13 @@ def get_user(matric_number: str, password: str):
                 response_data = {"Incorrect password."}
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED, detail=response_data)
-            return JSONResponse(status_code=200, content={"message": "Login successful."})
+            return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Login successful."})
 
 
 @app.get(path="/generate-registration-options")
 def handler_generate_registration_options(matric_number: str):
-    user_id = random.randint(1, 1000000)
-    registration_challenge = os.urandom(32)
+    user_id: int = random.randint(1, 1000000)
+    registration_challenge: bytes = os.urandom(32)
 
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
@@ -144,9 +144,7 @@ def handler_generate_registration_options(matric_number: str):
 
 @app.post(path="/verify-registration-response")
 async def handler_verify_registration_response(matric_number: str, request: Request):
-    body = await request.json()  # returns a json object
-    credential = json.dumps(body, indent=4)  # returns  json string
-    credential = json.loads(credential)
+    credential: dict = await request.json()  # returns a json object
 
     select_user_info_from_students_table_sql = "SELECT registration_challenge FROM students WHERE matric_number = %s"
     with psycopg2.connect(**connection_params) as connection:
@@ -158,7 +156,7 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
                 response_data = {"message": "matric number not found."}
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
-            registration_challenge = bytes(result[0])
+            registration_challenge: bytes = bytes(result[0])
 
     try:
         verification = verify_registration_response(
@@ -174,8 +172,8 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
     # I am meant to store the credential and the user attached to this credential
 
     transports: list = credential["response"]["transports"]
-    transports_string = ""
-    lenght_transports = len(transports)
+    transports_string: str = ""
+    lenght_transports: int = len(transports)
     for i, transport in enumerate(transports):
         transports_string += transport
         if i != lenght_transports - 1:
@@ -188,12 +186,12 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
                            verification.credential_public_key, verification.sign_count, transports_string, matric_number))
             connection.commit()
 
-    return JSONResponse(status_code=200, content={"verified": True})
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"verified": True})
 
 
 @app.get(path="/generate-authentication-options")
 def handler_generate_authentication_options(matric_number: str):
-    authentication_challenge = os.urandom(32)
+    authentication_challenge: bytes = os.urandom(32)
 
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
@@ -207,8 +205,8 @@ def handler_generate_authentication_options(matric_number: str):
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
 
-            credential_id, transports = result
-            credential_id = bytes(credential_id)
+            credential_id, transports: str = result
+            credential_id: bytes = bytes(credential_id)
             insert_auth_challenge_into_students_table_sql = "UPDATE students SET authentication_challenge = %s WHERE matric_number = %s"
             cursor.execute(insert_auth_challenge_into_students_table_sql,
                            (authentication_challenge, matric_number))
@@ -230,15 +228,10 @@ def handler_generate_authentication_options(matric_number: str):
 
 @app.post("/verify-authentication-response")
 async def hander_verify_authentication_response(matric_number: str, request: Request):
-    body = await request.json()  # returns a json object
-
     try:
-        credential = json.dumps(body, indent=4)  # returns  json string
-        credential = json.loads(credential)
+        credential: dict = await request.json()  # returns a json object
         # Find the user's corresponding public key
-
-        # Assuming credential["rawId"] is a base64url-encoded string
-        raw_id_bytes = base64url_to_bytes(credential["rawId"])
+        raw_id_bytes: bytes = base64url_to_bytes(credential["rawId"])
         with psycopg2.connect(**connection_params) as connection:
             with connection.cursor() as cursor:
                 select_user_info_from_students_table_sql = "SELECT credential_id, authentication_challenge, public_key, sign_count FROM students WHERE matric_number = %s"
@@ -252,9 +245,9 @@ async def hander_verify_authentication_response(matric_number: str, request: Req
                         status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
                 credential_id, authentication_challenge, public_key, sign_count = result
 
-        credential_id = bytes(credential_id)
-        authentication_challenge = bytes(authentication_challenge)
-        public_key = bytes(public_key)
+        credential_id: bytes = bytes(credential_id)
+        authentication_challenge: bytes = bytes(authentication_challenge)
+        public_key: bytes = bytes(public_key)
 
         user_credential = None
         if credential_id == raw_id_bytes:
@@ -283,9 +276,10 @@ async def hander_verify_authentication_response(matric_number: str, request: Req
 
     except Exception as err:
         print(err)
-        return {"verified": False, "msg": str(err), "status": 400}
+        response_data = {"verified": False, "msg": str(err)}
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=response_data) 
 
-    return {"verified": True}
+    return JSONResponse(content={"verified": True}, status_code=status.HTTP_200_OK) 
 
 
 uvicorn.run(app=app, host="0.0.0.0")
