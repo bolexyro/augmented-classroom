@@ -2,7 +2,6 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import random
-import json
 import os
 import psycopg2
 import uvicorn
@@ -13,12 +12,9 @@ from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
     UserVerificationRequirement,
-    RegistrationCredential,
-    AuthenticationCredential,
     AttestationConveyancePreference,
     AuthenticatorAttachment,
     AuthenticatorSelectionCriteria,
-    PublicKeyCredentialDescriptor,
     ResidentKeyRequirement
 )
 from webauthn import (
@@ -88,19 +84,19 @@ def create_user(student: Student):
 
 
 @app.get(path="/verify-student")
-def get_user(matric_number: str, password: str):
+def get_user(student: Student):
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
             select_user_info_from_students_table = "SELECT matric_number, password FROM students WHERE matric_number = %s"
             cursor.execute(select_user_info_from_students_table,
-                           (matric_number, ))
+                           (student.matric_number, ))
             result = cursor.fetchone()
             if not result:
                 response_data = {"message": "matric number not found."}
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
             retrieved_matric_number, retrieved_password = result
-            if retrieved_password != password:
+            if retrieved_password != student.password:
                 response_data = {"Incorrect password."}
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED, detail=response_data)
