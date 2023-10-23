@@ -35,13 +35,10 @@ email TEXT
 
 
 cursor = conn.cursor()
-cursor.execute("SELECT * FROM students")
-for x in cursor.fetchall():
-    print(x)
-
+cursor.execute(create_table_sql)
 
 # Commit the transaction
-# conn.commit()
+conn.commit()
 
 print("Table 'students' created successfully.")
 cursor.close()
