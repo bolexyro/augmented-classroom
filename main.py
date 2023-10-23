@@ -205,7 +205,7 @@ def handler_generate_authentication_options(matric_number: str):
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
 
-            credential_id, transports: str = result
+            credential_id, transports = result
             credential_id: bytes = bytes(credential_id)
             insert_auth_challenge_into_students_table_sql = "UPDATE students SET authentication_challenge = %s WHERE matric_number = %s"
             cursor.execute(insert_auth_challenge_into_students_table_sql,
@@ -277,9 +277,10 @@ async def hander_verify_authentication_response(matric_number: str, request: Req
     except Exception as err:
         print(err)
         response_data = {"verified": False, "msg": str(err)}
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=response_data) 
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=response_data)
 
-    return JSONResponse(content={"verified": True}, status_code=status.HTTP_200_OK) 
+    return JSONResponse(content={"verified": True}, status_code=status.HTTP_200_OK)
 
 
 uvicorn.run(app=app, host="0.0.0.0")
