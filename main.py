@@ -47,7 +47,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[origin],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,7 +73,6 @@ def create_user(student: Student):
                            (student.matric_number.upper(), ))
             result = cursor.fetchone()
             if not result:
-                print(result)
                 insert_new_student_info_into_students_table_sql = "INSERT INTO students(matric_number, password) VALUES (%s, %s)"
                 cursor.execute(insert_new_student_info_into_students_table_sql,
                                (student.matric_number.upper(), student.password))
