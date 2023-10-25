@@ -68,11 +68,12 @@ def home():
 def create_user(student: Student):
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
-            select_user_info_from_students_table = "SELECT matric_number, password FROM students WHERE matric_number = %s"
-            cursor.execute(select_user_info_from_students_table,
-                           (student.matric_number, ))
+            select_student_info_from_students_table = "SELECT matric_number, password FROM students WHERE matric_number = %s"
+            cursor.execute(select_student_info_from_students_table,
+                           (student.matric_number.upper(), ))
             result = cursor.fetchone()
             if not result:
+                print(result)
                 insert_new_student_info_into_students_table_sql = "INSERT INTO students(matric_number, password) VALUES (%s, %s)"
                 cursor.execute(insert_new_student_info_into_students_table_sql,
                                (student.matric_number.upper(), student.password))
