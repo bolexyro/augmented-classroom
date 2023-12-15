@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, status, Depends, Form
+from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import random
@@ -7,7 +8,10 @@ import psycopg2
 import uvicorn
 from dotenv import load_dotenv
 from pydantic import BaseModel
-
+from typing import Annotated
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
@@ -35,12 +39,17 @@ db_host = os.getenv("DB_INTERNAL_HOST")
 db_port = os.getenv("DB_PORT")
 origin = os.getenv("ORIGIN")
 rp_id = os.getenv("RP_ID")
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES: Annotated[int,
+                                       "Number of minutes the access token is valid for. I am setting it to 5 minutes"] = 5
 
 connection_params = {"database": db,
                      "user": db_username,
                      "host": db_host,
                      "password": db_password,
                      "port": db_port}
+
 
 app = FastAPI()
 
@@ -52,6 +61,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 
 class Student(BaseModel):
@@ -72,39 +83,92 @@ def create_user(student: Student):
             cursor.execute(select_student_info_from_students_table,
                            (student.matric_number.upper(), ))
             result = cursor.fetchone()
-            if not result:
-                insert_new_student_info_into_students_table_sql = "INSERT INTO students(matric_number, password) VALUES (%s, %s)"
-                cursor.execute(insert_new_student_info_into_students_table_sql,
-                               (student.matric_number.upper(), student.password))
-                connection.commit()
-                response_data = {"message": "Student created."}
-                return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={
-                                "message": "Student already exists."})
+    if not result:
+        insert_new_student_info_into_students_table_sql = "INSERT INTO students(matric_number, password) VALUES (%s, %s)"
+        cursor.execute(insert_new_student_info_into_students_table_sql,
+                       (student.matric_number.upper(), student.password))
+        connection.commit()
+        response_data = {"message": "Student created."}
+        return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={
+                        "message": "Student already exists."})
 
 
-@app.post(path="/verify-student")
-def get_user(student: Student):
+def create_access_refresh_token(data: dict, expires_delta: timedelta | None = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+@app.post(path="/login")
+# mosh is going to send the matric number and email as form data now
+def get_user(username: Annotated[str, Form(title="The matric number of the student.")], password: Annotated[str, Form(title="The password of the student")]):
+    # to follow the specs of oauth2, that is why i am using username
+    matric_number = username
+    incorrent_credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"message": "Incorrent matric number or password."},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
             select_user_info_from_students_table = "SELECT matric_number, password FROM students WHERE matric_number = %s"
             cursor.execute(select_user_info_from_students_table,
-                           (student.matric_number.upper(), ))
+                           (matric_number.upper(), ))
             result = cursor.fetchone()
-            if not result:
-                response_data = {"message": "matric number not found."}
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
-            retrieved_matric_number, retrieved_password = result
-            if retrieved_password != student.password:
-                response_data = {"message": "Incorrect password."}
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED, detail=response_data)
-            return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Login successful."})
+    if result:
+        retrieved_matric_number, retrieved_password = result
+        if retrieved_password != password:
+            raise incorrent_credentials_exception
+        access_token_expires = timedelta(
+            minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_refresh_token(
+            data={"sub": matric_number}, expires_delta=access_token_expires)
+        return JSONResponse(status_code=status.HTTP_200_OK, content={"access_token": access_token, "token_type": "bearer"})
+    raise incorrent_credentials_exception
+
+
+class TokenData(BaseModel):
+    matric_number: str
+    # i don't want to use this since JWTError already takes care of the expiry of the jwt token
+    expire_time: timedelta | None = None
+
+
+async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)]):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        matric_number: str = payload.get("sub")
+        if matric_number is None:
+            raise credentials_exception
+        token_data = TokenData(matric_number=matric_number)
+    except JWTError:
+        raise credentials_exception
+    # idk if there is a point of validating if the matric number exists since we alredy did that before the token was created.
+    with psycopg2.connect(**connection_params) as connection:
+        with connection.cursor() as cursor:
+            select_user_info_from_students_table = "SELECT matric_number FROM students WHERE matric_number = %s"
+            cursor.execute(select_user_info_from_students_table,
+                           (token_data.matric_number.upper(), ))
+            result: list[Annotated[str, "The matric number"]
+                         ] = cursor.fetchone()
+    if not result:
+        raise credentials_exception
+    return result[0]
 
 
 @app.get(path="/generate-registration-options")
-def handler_generate_registration_options(matric_number: str):
+def handler_generate_registration_options(matric_number: Annotated[str, Depends(decode_and_validate_token)]):
     user_id: int = random.randint(1, 1000000)
     registration_challenge: bytes = os.urandom(32)
 
@@ -139,7 +203,7 @@ def handler_generate_registration_options(matric_number: str):
 
 
 @app.post(path="/verify-registration-response")
-async def handler_verify_registration_response(matric_number: str, request: Request):
+async def handler_verify_registration_response(request: Request, matric_number: Annotated[str, Depends(decode_and_validate_token)]):
     credential: dict = await request.json()  # returns a json object
 
     select_user_info_from_students_table_sql = "SELECT registration_challenge FROM students WHERE matric_number = %s"
@@ -148,11 +212,11 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
             cursor.execute(
                 select_user_info_from_students_table_sql, (matric_number, ))
             result = cursor.fetchone()
-            if not result:
-                response_data = {"message": "matric number not found."}
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
-            registration_challenge: bytes = bytes(result[0])
+    if not result:
+        response_data = {"message": "matric number not found."}
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
+    registration_challenge: bytes = bytes(result[0])
 
     try:
         verification = verify_registration_response(
@@ -186,7 +250,7 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
 
 
 @app.get(path="/generate-authentication-options")
-def handler_generate_authentication_options(matric_number: str):
+def handler_generate_authentication_options(matric_number: Annotated[str, Depends(decode_and_validate_token)]):
     authentication_challenge: bytes = os.urandom(32)
 
     with psycopg2.connect(**connection_params) as connection:
@@ -223,7 +287,7 @@ def handler_generate_authentication_options(matric_number: str):
 
 
 @app.post("/verify-authentication-response")
-async def hander_verify_authentication_response(matric_number: str, request: Request):
+async def hander_verify_authentication_response(matric_number: Annotated[str, Depends(decode_and_validate_token)], request: Request):
     try:
         credential: dict = await request.json()  # returns a json object
         # Find the user's corresponding public key
@@ -235,11 +299,11 @@ async def hander_verify_authentication_response(matric_number: str, request: Req
                     select_user_info_from_students_table_sql, (matric_number, ))
                 result = cursor.fetchone()
 
-                if not result:
-                    response_data = {"message": "matric_number not found."}
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
-                credential_id, authentication_challenge, public_key, sign_count = result
+        if not result:
+            response_data = {"message": "matric_number not found."}
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
+        credential_id, authentication_challenge, public_key, sign_count = result
 
         credential_id: bytes = bytes(credential_id)
         authentication_challenge: bytes = bytes(authentication_challenge)
@@ -278,5 +342,27 @@ async def hander_verify_authentication_response(matric_number: str, request: Req
 
     return JSONResponse(content={"verified": True}, status_code=status.HTTP_200_OK)
 
+
+class RefreshToken(BaseModel):
+    refresh_token: str
+
+
+@app.post(path="/refresh")
+async def refresh(refresh_token: RefreshToken, access_token: Annotated[str, Depends(oauth2_scheme)]):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    access_token_matric_number = decode_and_validate_token(access_token)
+    refresh_token_matric_number = decode_and_validate_token(refresh_token)
+    if refresh_token_matric_number != access_token_matric_number:
+        raise credentials_exception
+    token_data = TokenData(matric_number=access_token_matric_number)
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    new_access_token = create_access_refresh_token(
+        data={"sub": token_data.username}, expires_delta=access_token_expires
+    )
+    return {"new_access_token": new_access_token, "token_type": "bearer", "refresh_token": refresh_token.refresh_token}
 
 uvicorn.run(app=app, host="0.0.0.0")
