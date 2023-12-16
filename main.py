@@ -142,9 +142,12 @@ def create_access_refresh_token(data: dict, expires_delta: timedelta | None = No
 
 @app.post(path="/verify-student")
 # mosh is going to send the matric number and email as form data now
-def get_user(username: Annotated[str, Form(title="The matric number of the student.")], password: Annotated[str, Form(title="The password of the student")]):
+# def get_user(username: Annotated[str, Form(title="The matric number of the student.")], password: Annotated[str, Form(title="The password of the student")]):
+def get_user(student: Student):
     # to follow the specs of oauth2, that is why i am using username
-    matric_number = username
+    # matric_number = username
+    matric_number = student.matric_number
+    password = student.password
     incorrent_credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Incorrent matric number or password.")
