@@ -393,8 +393,8 @@ async def refresh(refresh_token: RefreshToken, access_token: Annotated[str, Depe
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    access_token_matric_number = decode_and_validate_token(access_token)
-    refresh_token_matric_number = decode_and_validate_token(refresh_token)
+    access_token_matric_number = await decode_and_validate_token(access_token)
+    refresh_token_matric_number = await decode_and_validate_token(refresh_token)
     if refresh_token_matric_number != access_token_matric_number:
         raise credentials_exception
     token_data = TokenData(matric_number=access_token_matric_number)
