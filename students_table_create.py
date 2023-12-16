@@ -26,10 +26,7 @@ sign_count INTEGER,
 user_id BIGINT,
 transports TEXT,
 registration_challenge bytea,
-authentication_challenge bytea,
-first_name TEXT,
-last_name TEXT,
-email TEXT
+authentication_challenge bytea
 )
 """
 
