@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, status, Depends, Form
+from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import random
@@ -7,7 +9,10 @@ import psycopg2
 import uvicorn
 from dotenv import load_dotenv
 from pydantic import BaseModel
-
+from typing import Annotated
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
@@ -28,19 +33,27 @@ from webauthn import (
 
 load_dotenv(".env")
 
-db = os.getenv("DB_NAME")
-db_username = os.getenv("DB_USERNAME")
-db_password = os.getenv("DB_PASSWORD")
-db_host = os.getenv("DB_INTERNAL_HOST")
-db_port = os.getenv("DB_PORT")
-origin = os.getenv("ORIGIN")
-rp_id = os.getenv("RP_ID")
+DB = os.getenv("DB_NAME")
+DB_USERNAME = os.getenv("DB_USERNAME")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_EXTERNAL_HOST")
+DB_PORT = os.getenv("DB_PORT")
+ORIGIN = os.getenv("ORIGIN")
+RP_ID = os.getenv("RP_ID")
+SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_MESSAGE = os.getenv("SECRET_MESSAGE")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES: Annotated[int,
+                                       "Number of minutes the access token is valid for. I am setting it to 5 minutes"] = 5
+REFRESH_TOKEN_EXPIRE_MINUTES: Annotated[int,
+                                        "I am setting the refresh token time to 2hr"] = 120
 
-connection_params = {"database": db,
-                     "user": db_username,
-                     "host": db_host,
-                     "password": db_password,
-                     "port": db_port}
+connection_params = {"database": DB,
+                     "user": DB_USERNAME,
+                     "host": DB_HOST,
+                     "password": DB_PASSWORD,
+                     "port": DB_PORT}
+
 
 app = FastAPI()
 
@@ -53,6 +66,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+token_auth_scheme = HTTPBearer()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 class Student(BaseModel):
     matric_number: str
@@ -64,47 +81,135 @@ def home():
     return True
 
 
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+# Function to verify a password
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+async def verify_token_for_create_student_endpoint(authorization: Annotated[HTTPAuthorizationCredentials, Depends(token_auth_scheme)]):
+    token = authorization.credentials
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        message: str = payload.get("sub")
+        if message is None or message != SECRET_MESSAGE:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    return True
+
+
 @app.post(path="/create-student")
-def create_user(student: Student):
-    with psycopg2.connect(**connection_params) as connection:
-        with connection.cursor() as cursor:
-            select_student_info_from_students_table = "SELECT matric_number, password FROM students WHERE matric_number = %s"
-            cursor.execute(select_student_info_from_students_table,
-                           (student.matric_number.upper(), ))
-            result = cursor.fetchone()
-            if not result:
-                insert_new_student_info_into_students_table_sql = "INSERT INTO students(matric_number, password) VALUES (%s, %s)"
-                cursor.execute(insert_new_student_info_into_students_table_sql,
-                               (student.matric_number.upper(), student.password))
-                connection.commit()
-                response_data = {"message": "Student created."}
-                return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={
-                                "message": "Student already exists."})
+def create_user(student: Student, token_is_verified: Annotated[bool, Depends(verify_token_for_create_student_endpoint)]):
+    if token_is_verified:
+        hashed_password = get_password_hash(student.password)
+        with psycopg2.connect(**connection_params) as connection:
+            with connection.cursor() as cursor:
+                select_student_info_from_students_table = "SELECT matric_number, password FROM students WHERE matric_number = %s"
+                cursor.execute(select_student_info_from_students_table,
+                               (student.matric_number.upper(), ))
+                result = cursor.fetchone()
+                if not result:
+                    insert_new_student_info_into_students_table_sql = "INSERT INTO students(matric_number, password) VALUES (%s, %s)"
+                    cursor.execute(insert_new_student_info_into_students_table_sql,
+                                   (student.matric_number.upper(), hashed_password))
+                    connection.commit()
+                    response_data = {"message": "Student created."}
+                    return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail="Student already exists.")
 
 
-@app.post(path="/verify-student")
-def get_user(student: Student):
+def create_access_refresh_token(data: dict, expires_delta: timedelta | None = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+@app.post(path="/login")
+# mosh is going to send the matric number and email as form data now
+def get_user(username: Annotated[str, Form(title="The matric number of the student.")], password: Annotated[str, Form(title="The password of the student")]):
+    # to follow the specs of oauth2, that is why i am using username
+    matric_number = username
+    incorrent_credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Incorrent matric number or password.")
+
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
             select_user_info_from_students_table = "SELECT matric_number, password FROM students WHERE matric_number = %s"
             cursor.execute(select_user_info_from_students_table,
-                           (student.matric_number.upper(), ))
+                           (matric_number.upper(), ))
             result = cursor.fetchone()
-            if not result:
-                response_data = {"message": "matric number not found."}
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
-            retrieved_matric_number, retrieved_password = result
-            if retrieved_password != student.password:
-                response_data = {"message": "Incorrect password."}
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED, detail=response_data)
-            return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Login successful."})
+    if result:
+        retrieved_matric_number, retrieved_password = result
+        retrieved_password: Annotated[str,
+                                      "The hashed password"] = retrieved_password
+        if not verify_password(password, retrieved_password):
+            raise incorrent_credentials_exception
+
+        access_token_expires = timedelta(
+            minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_refresh_token(
+            data={"sub": matric_number}, expires_delta=access_token_expires)
+
+        refresh_token_expires = timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
+        refresh_token = create_access_refresh_token(
+            data={"sub": matric_number}, expires_delta=refresh_token_expires)
+
+        return JSONResponse(status_code=status.HTTP_200_OK, content={"access_token": access_token, "token_type": "bearer", "refresh_token": refresh_token})
+    raise incorrent_credentials_exception
+
+
+class TokenData(BaseModel):
+    matric_number: str
+    # i don't want to use this since JWTError already takes care of the expiry of the jwt token
+    expire_time: timedelta | None = None
+
+
+async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)]):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        matric_number: str = payload.get("sub")
+        if matric_number is None:
+            raise credentials_exception
+        token_data = TokenData(matric_number=matric_number)
+    except JWTError:
+        raise credentials_exception
+    # idk if there is a point of validating if the matric number exists since we alredy did that before the token was created.
+    with psycopg2.connect(**connection_params) as connection:
+        with connection.cursor() as cursor:
+            select_user_info_from_students_table = "SELECT matric_number FROM students WHERE matric_number = %s"
+            cursor.execute(select_user_info_from_students_table,
+                           (token_data.matric_number.upper(), ))
+            result: list[Annotated[str, "The matric number"]
+                         ] = cursor.fetchone()
+    if not result:
+        raise credentials_exception
+    return result[0]
 
 
 @app.get(path="/generate-registration-options")
-def handler_generate_registration_options(matric_number: str):
+def handler_generate_registration_options(matric_number: Annotated[str, Depends(decode_and_validate_token)]):
     user_id: int = random.randint(1, 1000000)
     registration_challenge: bytes = os.urandom(32)
 
@@ -116,7 +221,7 @@ def handler_generate_registration_options(matric_number: str):
             connection.commit()
 
     options = generate_registration_options(
-        rp_id=rp_id,
+        rp_id=RP_ID,
         rp_name="Augmented Classroom",
         user_id=str(user_id),
         user_name=matric_number,
@@ -139,7 +244,7 @@ def handler_generate_registration_options(matric_number: str):
 
 
 @app.post(path="/verify-registration-response")
-async def handler_verify_registration_response(matric_number: str, request: Request):
+async def handler_verify_registration_response(request: Request, matric_number: Annotated[str, Depends(decode_and_validate_token)]):
     credential: dict = await request.json()  # returns a json object
 
     select_user_info_from_students_table_sql = "SELECT registration_challenge FROM students WHERE matric_number = %s"
@@ -148,18 +253,17 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
             cursor.execute(
                 select_user_info_from_students_table_sql, (matric_number, ))
             result = cursor.fetchone()
-            if not result:
-                response_data = {"message": "matric number not found."}
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
-            registration_challenge: bytes = bytes(result[0])
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="matric number not found.")
+    registration_challenge: bytes = bytes(result[0])
 
     try:
         verification = verify_registration_response(
             credential=credential,
             expected_challenge=registration_challenge,
-            expected_rp_id=rp_id,
-            expected_origin=origin,
+            expected_rp_id=RP_ID,
+            expected_origin=ORIGIN,
         )
 
     except Exception as err:
@@ -186,7 +290,7 @@ async def handler_verify_registration_response(matric_number: str, request: Requ
 
 
 @app.get(path="/generate-authentication-options")
-def handler_generate_authentication_options(matric_number: str):
+def handler_generate_authentication_options(matric_number: Annotated[str, Depends(decode_and_validate_token)]):
     authentication_challenge: bytes = os.urandom(32)
 
     with psycopg2.connect(**connection_params) as connection:
@@ -197,9 +301,9 @@ def handler_generate_authentication_options(matric_number: str):
             result = cursor.fetchone()
 
             if not result:
-                response_data = {"message": "matric_number not found."}
+
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
+                    status_code=status.HTTP_404_NOT_FOUND, detail="matric_number not found.")
 
             credential_id, transports = result
             credential_id: bytes = bytes(credential_id)
@@ -211,7 +315,7 @@ def handler_generate_authentication_options(matric_number: str):
         transports = transports.split(",")
 
     options = generate_authentication_options(
-        rp_id=rp_id,
+        rp_id=RP_ID,
         allow_credentials=[
             {"type": "public-key", "id": credential_id, "transports": transports}
         ],
@@ -223,7 +327,7 @@ def handler_generate_authentication_options(matric_number: str):
 
 
 @app.post("/verify-authentication-response")
-async def hander_verify_authentication_response(matric_number: str, request: Request):
+async def hander_verify_authentication_response(matric_number: Annotated[str, Depends(decode_and_validate_token)], request: Request):
     try:
         credential: dict = await request.json()  # returns a json object
         # Find the user's corresponding public key
@@ -235,11 +339,10 @@ async def hander_verify_authentication_response(matric_number: str, request: Req
                     select_user_info_from_students_table_sql, (matric_number, ))
                 result = cursor.fetchone()
 
-                if not result:
-                    response_data = {"message": "matric_number not found."}
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
-                credential_id, authentication_challenge, public_key, sign_count = result
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="matric_number not found.")
+        credential_id, authentication_challenge, public_key, sign_count = result
 
         credential_id: bytes = bytes(credential_id)
         authentication_challenge: bytes = bytes(authentication_challenge)
@@ -256,8 +359,8 @@ async def hander_verify_authentication_response(matric_number: str, request: Req
         verification = verify_authentication_response(
             credential=credential,
             expected_challenge=authentication_challenge,
-            expected_rp_id=rp_id,
-            expected_origin=origin,
+            expected_rp_id=RP_ID,
+            expected_origin=ORIGIN,
             credential_public_key=public_key,
             credential_current_sign_count=sign_count,
             require_user_verification=True,
@@ -278,5 +381,28 @@ async def hander_verify_authentication_response(matric_number: str, request: Req
 
     return JSONResponse(content={"verified": True}, status_code=status.HTTP_200_OK)
 
+
+class RefreshToken(BaseModel):
+    refresh_token: str
+
+
+@app.post(path="/refresh")
+async def refresh(refresh_token: RefreshToken, access_token: Annotated[str, Depends(oauth2_scheme)]):
+    refresh_token_str = refresh_token.refresh_token
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    access_token_matric_number = await decode_and_validate_token(access_token)
+    refresh_token_matric_number = await decode_and_validate_token(refresh_token_str)
+    if refresh_token_matric_number != access_token_matric_number:
+        raise credentials_exception
+    token_data = TokenData(matric_number=access_token_matric_number)
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    new_access_token = create_access_refresh_token(
+        data={"sub": token_data.matric_number}, expires_delta=access_token_expires
+    )
+    return {"new_access_token": new_access_token, "token_type": "bearer", "refresh_token": refresh_token_str}
 
 uvicorn.run(app=app, host="0.0.0.0")
