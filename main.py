@@ -125,8 +125,8 @@ def create_user(student: Student, token_is_verified: Annotated[bool, Depends(ver
                     connection.commit()
                     response_data = {"message": "Student created."}
                     return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={
-                            "Student already exists."})
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail="Student already exists.")
 
 
 def create_access_refresh_token(data: dict, expires_delta: timedelta | None = None):
@@ -147,7 +147,7 @@ def get_user(username: Annotated[str, Form(title="The matric number of the stude
     matric_number = username
     incorrent_credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail={"Incorrent matric number or password."})
+        detail="Incorrent matric number or password.")
 
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
@@ -254,9 +254,8 @@ async def handler_verify_registration_response(request: Request, matric_number: 
                 select_user_info_from_students_table_sql, (matric_number, ))
             result = cursor.fetchone()
     if not result:
-        response_data = {"matric number not found."}
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
+            status_code=status.HTTP_404_NOT_FOUND, detail="matric number not found.")
     registration_challenge: bytes = bytes(result[0])
 
     try:
@@ -302,9 +301,9 @@ def handler_generate_authentication_options(matric_number: Annotated[str, Depend
             result = cursor.fetchone()
 
             if not result:
-                response_data = {"matric_number not found."}
+
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
+                    status_code=status.HTTP_404_NOT_FOUND, detail="matric_number not found.")
 
             credential_id, transports = result
             credential_id: bytes = bytes(credential_id)
@@ -341,9 +340,8 @@ async def hander_verify_authentication_response(matric_number: Annotated[str, De
                 result = cursor.fetchone()
 
         if not result:
-            response_data = {"matric_number not found."}
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=response_data)
+                status_code=status.HTTP_404_NOT_FOUND, detail="matric_number not found.")
         credential_id, authentication_challenge, public_key, sign_count = result
 
         credential_id: bytes = bytes(credential_id)
