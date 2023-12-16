@@ -44,9 +44,9 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 SECRET_MESSAGE = os.getenv("SECRET_MESSAGE")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES: Annotated[int,
-                                       "Number of minutes the access token is valid for. I am setting it to 5 minutes"] = 5
+                                       "Number of minutes the access token is valid for. I am setting it to 15 minutes"] = 2
 REFRESH_TOKEN_EXPIRE_MINUTES: Annotated[int,
-                                        "I am setting the refresh token time to 2hr"] = 120
+                                        "I am setting the refresh token time to 4hrs"] = 240
 
 connection_params = {"database": DB,
                      "user": DB_USERNAME,
