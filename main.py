@@ -41,6 +41,7 @@ DB_PORT = os.getenv("DB_PORT")
 ORIGIN = os.getenv("ORIGIN")
 RP_ID = os.getenv("RP_ID")
 SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_MESSAGE = os.getenv("SECRET_MESSAGE")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES: Annotated[int,
                                        "Number of minutes the access token is valid for. I am setting it to 5 minutes"] = 5
@@ -67,7 +68,7 @@ app.add_middleware(
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 token_auth_scheme = HTTPBearer()
-
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class Student(BaseModel):
     matric_number: str
@@ -78,6 +79,12 @@ class Student(BaseModel):
 def home():
     return True
 
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+# Function to verify a password
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
 
 async def verify_token_for_create_student_endpoint(token: Annotated[str, Depends(token_auth_scheme)]):
     credentials_exception = HTTPException(
@@ -88,7 +95,7 @@ async def verify_token_for_create_student_endpoint(token: Annotated[str, Depends
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         message: str = payload.get("sub")
-        if message is None:
+        if message is None or message != SECRET_MESSAGE:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
@@ -98,6 +105,7 @@ async def verify_token_for_create_student_endpoint(token: Annotated[str, Depends
 @app.post(path="/create-student")
 def create_user(student: Student, token_is_verified: Annotated[bool, Depends(verify_token_for_create_student_endpoint)]):
     if token_is_verified:
+        hashed_password = get_password_hash(student.password)
         with psycopg2.connect(**connection_params) as connection:
             with connection.cursor() as cursor:
                 select_student_info_from_students_table = "SELECT matric_number, password FROM students WHERE matric_number = %s"
@@ -107,7 +115,7 @@ def create_user(student: Student, token_is_verified: Annotated[bool, Depends(ver
         if not result:
             insert_new_student_info_into_students_table_sql = "INSERT INTO students(matric_number, password) VALUES (%s, %s)"
             cursor.execute(insert_new_student_info_into_students_table_sql,
-                           (student.matric_number.upper(), student.password))
+                           (student.matric_number.upper(), hashed_password))
             connection.commit()
             response_data = {"message": "Student created."}
             return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
@@ -144,8 +152,8 @@ def get_user(username: Annotated[str, Form(title="The matric number of the stude
                            (matric_number.upper(), ))
             result = cursor.fetchone()
     if result:
-        retrieved_matric_number, retrieved_password = result
-        if retrieved_password != password:
+        retrieved_matric_number, retrieved_password: Annotated[str, "The hashed password"] = result
+        if not verify_password(password, retrieved_password):
             raise incorrent_credentials_exception
 
         access_token_expires = timedelta(
