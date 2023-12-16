@@ -32,23 +32,25 @@ from webauthn import (
 
 load_dotenv(".env")
 
-db = os.getenv("DB_NAME")
-db_username = os.getenv("DB_USERNAME")
-db_password = os.getenv("DB_PASSWORD")
-db_host = os.getenv("DB_INTERNAL_HOST")
-db_port = os.getenv("DB_PORT")
-origin = os.getenv("ORIGIN")
-rp_id = os.getenv("RP_ID")
+DB = os.getenv("DB_NAME")
+DB_USERNAME = os.getenv("DB_USERNAME")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_INTERNAL_HOST")
+DB_PORT = os.getenv("DB_PORT")
+ORIGIN = os.getenv("ORIGIN")
+RP_ID = os.getenv("RP_ID")
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES: Annotated[int,
                                        "Number of minutes the access token is valid for. I am setting it to 5 minutes"] = 5
+REFRESH_TOKEN_EXPIRE_MINUTES: Annotated[int,
+                                        "I am setting the refresh token time to 2hr"] = 120
 
-connection_params = {"database": db,
-                     "user": db_username,
-                     "host": db_host,
-                     "password": db_password,
-                     "port": db_port}
+connection_params = {"database": DB,
+                     "user": DB_USERNAME,
+                     "host": DB_HOST,
+                     "password": DB_PASSWORD,
+                     "port": DB_PORT}
 
 
 app = FastAPI()
@@ -56,7 +58,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin],
+    allow_origins=[ORIGIN],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -126,11 +128,17 @@ def get_user(username: Annotated[str, Form(title="The matric number of the stude
         retrieved_matric_number, retrieved_password = result
         if retrieved_password != password:
             raise incorrent_credentials_exception
+        
         access_token_expires = timedelta(
             minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_refresh_token(
             data={"sub": matric_number}, expires_delta=access_token_expires)
-        return JSONResponse(status_code=status.HTTP_200_OK, content={"access_token": access_token, "token_type": "bearer"})
+        
+        refresh_token_expires = timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
+        refresh_token = create_access_refresh_token(
+            data={"sub": matric_number}, expires_delta=refresh_token_expires)
+
+        return JSONResponse(status_code=status.HTTP_200_OK, content={"access_token": access_token, "token_type": "bearer", "refresh_token": refresh_token})
     raise incorrent_credentials_exception
 
 
@@ -180,7 +188,7 @@ def handler_generate_registration_options(matric_number: Annotated[str, Depends(
             connection.commit()
 
     options = generate_registration_options(
-        rp_id=rp_id,
+        rp_id=RP_ID,
         rp_name="Augmented Classroom",
         user_id=str(user_id),
         user_name=matric_number,
@@ -222,8 +230,8 @@ async def handler_verify_registration_response(request: Request, matric_number: 
         verification = verify_registration_response(
             credential=credential,
             expected_challenge=registration_challenge,
-            expected_rp_id=rp_id,
-            expected_origin=origin,
+            expected_rp_id=RP_ID,
+            expected_origin=ORIGIN,
         )
 
     except Exception as err:
@@ -275,7 +283,7 @@ def handler_generate_authentication_options(matric_number: Annotated[str, Depend
         transports = transports.split(",")
 
     options = generate_authentication_options(
-        rp_id=rp_id,
+        rp_id=RP_ID,
         allow_credentials=[
             {"type": "public-key", "id": credential_id, "transports": transports}
         ],
@@ -320,8 +328,8 @@ async def hander_verify_authentication_response(matric_number: Annotated[str, De
         verification = verify_authentication_response(
             credential=credential,
             expected_challenge=authentication_challenge,
-            expected_rp_id=rp_id,
-            expected_origin=origin,
+            expected_rp_id=RP_ID,
+            expected_origin=ORIGIN,
             credential_public_key=public_key,
             credential_current_sign_count=sign_count,
             require_user_verification=True,
