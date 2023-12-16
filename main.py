@@ -128,12 +128,12 @@ def get_user(username: Annotated[str, Form(title="The matric number of the stude
         retrieved_matric_number, retrieved_password = result
         if retrieved_password != password:
             raise incorrent_credentials_exception
-        
+
         access_token_expires = timedelta(
             minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_refresh_token(
             data={"sub": matric_number}, expires_delta=access_token_expires)
-        
+
         refresh_token_expires = timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
         refresh_token = create_access_refresh_token(
             data={"sub": matric_number}, expires_delta=refresh_token_expires)
@@ -369,7 +369,7 @@ async def refresh(refresh_token: RefreshToken, access_token: Annotated[str, Depe
     token_data = TokenData(matric_number=access_token_matric_number)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     new_access_token = create_access_refresh_token(
-        data={"sub": token_data.username}, expires_delta=access_token_expires
+        data={"sub": token_data.matric_number}, expires_delta=access_token_expires
     )
     return {"new_access_token": new_access_token, "token_type": "bearer", "refresh_token": refresh_token.refresh_token}
 
