@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request, status, Depends, Form
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import random
@@ -35,7 +36,7 @@ load_dotenv(".env")
 DB = os.getenv("DB_NAME")
 DB_USERNAME = os.getenv("DB_USERNAME")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_INTERNAL_HOST")
+DB_HOST = os.getenv("DB_EXTERNAL_HOST")
 DB_PORT = os.getenv("DB_PORT")
 ORIGIN = os.getenv("ORIGIN")
 RP_ID = os.getenv("RP_ID")
@@ -65,6 +66,7 @@ app.add_middleware(
 )
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+token_auth_scheme = HTTPBearer()
 
 
 class Student(BaseModel):
@@ -77,23 +79,40 @@ def home():
     return True
 
 
+async def verify_token_for_create_student_endpoint(token: Annotated[str, Depends(token_auth_scheme)]):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        message: str = payload.get("sub")
+        if message is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    return True
+
+
 @app.post(path="/create-student")
-def create_user(student: Student):
-    with psycopg2.connect(**connection_params) as connection:
-        with connection.cursor() as cursor:
-            select_student_info_from_students_table = "SELECT matric_number, password FROM students WHERE matric_number = %s"
-            cursor.execute(select_student_info_from_students_table,
-                           (student.matric_number.upper(), ))
-            result = cursor.fetchone()
-    if not result:
-        insert_new_student_info_into_students_table_sql = "INSERT INTO students(matric_number, password) VALUES (%s, %s)"
-        cursor.execute(insert_new_student_info_into_students_table_sql,
-                       (student.matric_number.upper(), student.password))
-        connection.commit()
-        response_data = {"message": "Student created."}
-        return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={
-                        "message": "Student already exists."})
+def create_user(student: Student, token_is_verified: Annotated[bool, Depends(verify_token_for_create_student_endpoint)]):
+    if token_is_verified:
+        with psycopg2.connect(**connection_params) as connection:
+            with connection.cursor() as cursor:
+                select_student_info_from_students_table = "SELECT matric_number, password FROM students WHERE matric_number = %s"
+                cursor.execute(select_student_info_from_students_table,
+                               (student.matric_number.upper(), ))
+                result = cursor.fetchone()
+        if not result:
+            insert_new_student_info_into_students_table_sql = "INSERT INTO students(matric_number, password) VALUES (%s, %s)"
+            cursor.execute(insert_new_student_info_into_students_table_sql,
+                           (student.matric_number.upper(), student.password))
+            connection.commit()
+            response_data = {"message": "Student created."}
+            return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={
+                            "message": "Student already exists."})
 
 
 def create_access_refresh_token(data: dict, expires_delta: timedelta | None = None):
