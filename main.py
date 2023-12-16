@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request, status, Depends, Form
 from fastapi.security import OAuth2PasswordBearer
-from fastapi.security import HTTPBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import random
@@ -91,7 +91,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-async def verify_token_for_create_student_endpoint(token: Annotated[str, Depends(token_auth_scheme)]):
+async def verify_token_for_create_student_endpoint(authorization: Annotated[HTTPAuthorizationCredentials, Depends(token_auth_scheme)]):
+    token = authorization.credentials
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
