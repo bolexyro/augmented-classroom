@@ -388,13 +388,14 @@ class RefreshToken(BaseModel):
 
 @app.post(path="/refresh")
 async def refresh(refresh_token: RefreshToken, access_token: Annotated[str, Depends(oauth2_scheme)]):
+    refresh_token_str = refresh_token.refresh_token
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     access_token_matric_number = await decode_and_validate_token(access_token)
-    refresh_token_matric_number = await decode_and_validate_token(refresh_token)
+    refresh_token_matric_number = await decode_and_validate_token(refresh_token_str)
     if refresh_token_matric_number != access_token_matric_number:
         raise credentials_exception
     token_data = TokenData(matric_number=access_token_matric_number)
@@ -402,6 +403,6 @@ async def refresh(refresh_token: RefreshToken, access_token: Annotated[str, Depe
     new_access_token = create_access_refresh_token(
         data={"sub": token_data.matric_number}, expires_delta=access_token_expires
     )
-    return {"new_access_token": new_access_token, "token_type": "bearer", "refresh_token": refresh_token.refresh_token}
+    return {"new_access_token": new_access_token, "token_type": "bearer", "refresh_token": refresh_token_str}
 
 uvicorn.run(app=app, host="0.0.0.0")
