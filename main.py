@@ -70,6 +70,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 token_auth_scheme = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+
 class Student(BaseModel):
     matric_number: str
     password: str
@@ -79,12 +80,16 @@ class Student(BaseModel):
 def home():
     return True
 
+
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 # Function to verify a password
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
+
 
 async def verify_token_for_create_student_endpoint(token: Annotated[str, Depends(token_auth_scheme)]):
     credentials_exception = HTTPException(
@@ -152,7 +157,9 @@ def get_user(username: Annotated[str, Form(title="The matric number of the stude
                            (matric_number.upper(), ))
             result = cursor.fetchone()
     if result:
-        retrieved_matric_number, retrieved_password: Annotated[str, "The hashed password"] = result
+        retrieved_matric_number, retrieved_password = result
+        retrieved_password: Annotated[str,
+                                      "The hashed password"] = retrieved_password
         if not verify_password(password, retrieved_password):
             raise incorrent_credentials_exception
 
