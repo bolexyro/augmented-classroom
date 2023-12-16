@@ -60,13 +60,13 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[ORIGIN],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="verify-student")
 token_auth_scheme = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -140,7 +140,7 @@ def create_access_refresh_token(data: dict, expires_delta: timedelta | None = No
     return encoded_jwt
 
 
-@app.post(path="/login")
+@app.post(path="/verify-student")
 # mosh is going to send the matric number and email as form data now
 def get_user(username: Annotated[str, Form(title="The matric number of the student.")], password: Annotated[str, Form(title="The password of the student")]):
     # to follow the specs of oauth2, that is why i am using username
