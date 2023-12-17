@@ -44,7 +44,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 SECRET_MESSAGE = os.getenv("SECRET_MESSAGE")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES: Annotated[int,
-                                       "Number of minutes the access token is valid for. I am setting it to 15 minutes"] = 2
+                                       "Number of minutes the access token is valid for. I am setting it to 15 minutes"] = 15
 REFRESH_TOKEN_EXPIRE_MINUTES: Annotated[int,
                                         "I am setting the refresh token time to 4hrs"] = 240
 
@@ -168,11 +168,11 @@ def get_user(student: Student):
         access_token_expires = timedelta(
             minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_refresh_token(
-            data={"sub": matric_number}, expires_delta=access_token_expires)
+            data={"sub": "access|" + matric_number}, expires_delta=access_token_expires)
 
         refresh_token_expires = timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
         refresh_token = create_access_refresh_token(
-            data={"sub": matric_number}, expires_delta=refresh_token_expires)
+            data={"sub": "refresh|" + matric_number}, expires_delta=refresh_token_expires)
 
         return JSONResponse(status_code=status.HTTP_200_OK, content={"access_token": access_token, "token_type": "bearer", "refresh_token": refresh_token})
     raise incorrent_credentials_exception
@@ -184,15 +184,18 @@ class TokenData(BaseModel):
     expire_time: timedelta | None = None
 
 
-async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)]):
+async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)]) -> list[Annotated[str, "Whether or not the token is an access or refresh"], Annotated[str, "The matric number of the user"]]:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        matric_number: str = payload.get("sub")
+        payload: dict[str, str] = jwt.decode(
+            token, SECRET_KEY, algorithms=[ALGORITHM])
+        access_or_refresh_token: Annotated[str, "access if it is an access token else refresh"] = payload.get(
+            "sub").split("|")[0]
+        matric_number: str = payload.get("sub").split("|")[1]
         if matric_number is None:
             raise credentials_exception
         token_data = TokenData(matric_number=matric_number)
@@ -208,11 +211,12 @@ async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)
                          ] = cursor.fetchone()
     if not result:
         raise credentials_exception
-    return result[0]
+    return [access_or_refresh_token, result[0]]
 
 
 @app.get(path="/generate-registration-options")
-def handler_generate_registration_options(matric_number: Annotated[str, Depends(decode_and_validate_token)]):
+def handler_generate_registration_options(token_type_and_matric_number: Annotated[list[str, str], Depends(decode_and_validate_token)]):
+    token_type, matric_number = token_type_and_matric_number
     user_id: int = random.randint(1, 1000000)
     registration_challenge: bytes = os.urandom(32)
 
@@ -247,7 +251,8 @@ def handler_generate_registration_options(matric_number: Annotated[str, Depends(
 
 
 @app.post(path="/verify-registration-response")
-async def handler_verify_registration_response(request: Request, matric_number: Annotated[str, Depends(decode_and_validate_token)]):
+async def handler_verify_registration_response(request: Request, token_type_and_matric_number: Annotated[list[str, str], Depends(decode_and_validate_token)]):
+    token_type, matric_number = token_type_and_matric_number
     credential: dict = await request.json()  # returns a json object
 
     select_user_info_from_students_table_sql = "SELECT registration_challenge FROM students WHERE matric_number = %s"
@@ -293,7 +298,8 @@ async def handler_verify_registration_response(request: Request, matric_number: 
 
 
 @app.get(path="/generate-authentication-options")
-def handler_generate_authentication_options(matric_number: Annotated[str, Depends(decode_and_validate_token)]):
+def handler_generate_authentication_options(token_type_and_matric_number: Annotated[list[str, str], Depends(decode_and_validate_token)]):
+    token_type, matric_number = token_type_and_matric_number
     authentication_challenge: bytes = os.urandom(32)
 
     with psycopg2.connect(**connection_params) as connection:
@@ -330,8 +336,9 @@ def handler_generate_authentication_options(matric_number: Annotated[str, Depend
 
 
 @app.post("/verify-authentication-response")
-async def hander_verify_authentication_response(matric_number: Annotated[str, Depends(decode_and_validate_token)], request: Request):
+async def hander_verify_authentication_response(request: Request, token_type_and_matric_number: Annotated[list[str, str], Depends(decode_and_validate_token)]):
     try:
+        token_type, matric_number = token_type_and_matric_number
         credential: dict = await request.json()  # returns a json object
         # Find the user's corresponding public key
         raw_id_bytes: bytes = base64url_to_bytes(credential["rawId"])
@@ -397,15 +404,15 @@ async def refresh(refresh_token: RefreshToken, access_token: Annotated[str, Depe
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    access_token_matric_number = await decode_and_validate_token(access_token)
-    refresh_token_matric_number = await decode_and_validate_token(refresh_token_str)
-    if refresh_token_matric_number != access_token_matric_number:
+    is_this_an_access_token, access_matric_number = await decode_and_validate_token(access_token)
+    is_this_a_refresh_token, refresh_matric_number = await decode_and_validate_token(refresh_token_str)
+    if not refresh_matric_number or not access_matric_number or refresh_matric_number != access_matric_number or is_this_a_refresh_token != "refresh" or is_this_an_access_token != "access":
         raise credentials_exception
-    token_data = TokenData(matric_number=access_token_matric_number)
+    token_data = TokenData(matric_number=access_matric_number)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     new_access_token = create_access_refresh_token(
-        data={"sub": token_data.matric_number}, expires_delta=access_token_expires
+        data={"sub": "access|" + token_data.matric_number}, expires_delta=access_token_expires
     )
-    return {"new_access_token": new_access_token, "token_type": "bearer", "refresh_token": refresh_token_str}
+    return {"new_access_token": new_access_token, "token_type": "bearer"}
 
 uvicorn.run(app=app, host="0.0.0.0")
