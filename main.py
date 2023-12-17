@@ -44,7 +44,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 SECRET_MESSAGE = os.getenv("SECRET_MESSAGE")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES: Annotated[int,
-                                       "Number of minutes the access token is valid for. I am setting it to 15 minutes"] = os.getenv("ACCESS_TOKEN_DURATION")
+                                       "Number of minutes the access token is valid for. I am setting it to 15 minutes"] = float(os.getenv("ACCESS_TOKEN_DURATION"))
 REFRESH_TOKEN_EXPIRE_MINUTES: Annotated[int,
                                         "I am setting the refresh token time to 4hrs"] = 240
 
