@@ -126,7 +126,7 @@ def create_user(student: Student, token_is_verified: Annotated[bool, Depends(ver
                     response_data = {"message": "Student created."}
                     return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST, detail="Student already exists.")
+                    status_code=status.HTTP_409_CONFLICT, detail="Student already exists.")
 
 
 def create_access_refresh_token(data: dict, expires_delta: timedelta | None = None):
@@ -148,7 +148,7 @@ def get_user(student: Student):
     # matric_number = username
     matric_number = student.matric_number
     password = student.password
-    incorrent_credentials_exception = HTTPException(
+    incorrent_matric_number_or_password_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Incorrent matric number or password.")
 
@@ -163,7 +163,7 @@ def get_user(student: Student):
         retrieved_password: Annotated[str,
                                       "The hashed password"] = retrieved_password
         if not verify_password(password, retrieved_password):
-            raise incorrent_credentials_exception
+            raise incorrent_matric_number_or_password_exception
 
         access_token_expires = timedelta(
             minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -175,7 +175,7 @@ def get_user(student: Student):
             data={"sub": "refresh|" + matric_number}, expires_delta=refresh_token_expires)
 
         return JSONResponse(status_code=status.HTTP_200_OK, content={"access_token": access_token, "token_type": "bearer", "refresh_token": refresh_token})
-    raise incorrent_credentials_exception
+    raise incorrent_matric_number_or_password_exception
 
 
 class TokenData(BaseModel):
@@ -199,7 +199,7 @@ async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)
         if matric_number is None:
             raise credentials_exception
         token_data = TokenData(matric_number=matric_number)
-    except JWTError:
+    except (JWTError, IndexError):
         raise credentials_exception
     # idk if there is a point of validating if the matric number exists since we alredy did that before the token was created.
     with psycopg2.connect(**connection_params) as connection:
@@ -385,9 +385,6 @@ async def hander_verify_authentication_response(request: Request, token_type_and
 
     except Exception as err:
         print(err)
-        response_data = {"verified": False, "msg": str(err)}
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=response_data)
 
     return JSONResponse(content={"verified": True}, status_code=status.HTTP_200_OK)
 
