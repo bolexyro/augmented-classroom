@@ -3,5 +3,5 @@ __pycache__/
 .env
 dockerfile
 Augmented Classrooms.pptx
-give_token.py
 request_helper.py
+secret_keys.py

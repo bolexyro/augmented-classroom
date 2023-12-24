@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException, Request, status, Depends, Form
-from fastapi.security import OAuth2PasswordBearer
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import FastAPI, HTTPException, Request, status, Depends
+from models import Student, TokenData, RefreshToken, TokenResponse
+from utils import create_access_refresh_token, get_password_hash, verify_password, verify_token_for_create_student_endpoint, oauth2_scheme, credentials_exception, incorrent_matric_number_or_password_exception
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import random
@@ -8,11 +8,9 @@ import os
 import psycopg2
 import uvicorn
 from dotenv import load_dotenv
-from pydantic import BaseModel
 from typing import Annotated
-from datetime import datetime, timedelta
+from datetime import timedelta
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
@@ -32,13 +30,13 @@ from webauthn import (
 )
 
 load_dotenv(".env")
-
-DB = os.getenv("DB_NAME")
-DB_USERNAME = os.getenv("DB_USERNAME")
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_EXTERNAL_HOST")
+DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT")
-ORIGIN = os.getenv("ORIGIN")
+WEBAUTHN_ORIGIN = os.getenv("WEBAUTHN_ORIGIN")
+CORS_ORIGIN = os.getenv("CORS_ORIGIN")
 RP_ID = os.getenv("RP_ID")
 SECRET_KEY = os.getenv("SECRET_KEY")
 SECRET_MESSAGE = os.getenv("SECRET_MESSAGE")
@@ -48,8 +46,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES: Annotated[int,
 REFRESH_TOKEN_EXPIRE_MINUTES: Annotated[int,
                                         "I am setting the refresh token time to 4hrs"] = 240
 
-connection_params = {"database": DB,
-                     "user": DB_USERNAME,
+connection_params = {"database": DB_NAME,
+                     "user": DB_USER,
                      "host": DB_HOST,
                      "password": DB_PASSWORD,
                      "port": DB_PORT}
@@ -60,51 +58,15 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[ORIGIN],
+    allow_origins=[CORS_ORIGIN],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="verify-student")
-token_auth_scheme = HTTPBearer()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-class Student(BaseModel):
-    matric_number: str
-    password: str
-
 
 @app.get(path="/")
 def home():
-    return True
-
-
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
-
-# Function to verify a password
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-async def verify_token_for_create_student_endpoint(authorization: Annotated[HTTPAuthorizationCredentials, Depends(token_auth_scheme)]):
-    token = authorization.credentials
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        message: str = payload.get("sub")
-        if message is None or message != SECRET_MESSAGE:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
     return True
 
 
@@ -129,18 +91,7 @@ def create_user(student: Student, token_is_verified: Annotated[bool, Depends(ver
                     status_code=status.HTTP_409_CONFLICT, detail="Student already exists.")
 
 
-def create_access_refresh_token(data: dict, expires_delta: timedelta | None = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-
-@app.post(path="/verify-student")
+@app.post(path="/verify-student", response_model=TokenResponse)
 # mosh is going to send the matric number and email as form data now
 # def get_user(username: Annotated[str, Form(title="The matric number of the student.")], password: Annotated[str, Form(title="The password of the student")]):
 def get_user(student: Student):
@@ -148,9 +99,6 @@ def get_user(student: Student):
     # matric_number = username
     matric_number = student.matric_number
     password = student.password
-    incorrent_matric_number_or_password_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Incorrent matric number or password.")
 
     with psycopg2.connect(**connection_params) as connection:
         with connection.cursor() as cursor:
@@ -174,22 +122,11 @@ def get_user(student: Student):
         refresh_token = create_access_refresh_token(
             data={"sub": "refresh|" + matric_number}, expires_delta=refresh_token_expires)
 
-        return JSONResponse(status_code=status.HTTP_200_OK, content={"access_token": access_token, "token_type": "bearer", "refresh_token": refresh_token})
+        return TokenResponse(access_token=access_token, token_type="bearer", refresh_token=refresh_token)
     raise incorrent_matric_number_or_password_exception
 
 
-class TokenData(BaseModel):
-    matric_number: str
-    # i don't want to use this since JWTError already takes care of the expiry of the jwt token
-    expire_time: timedelta | None = None
-
-
 async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)]) -> list[Annotated[str, "Whether or not the token is an access or refresh"], Annotated[str, "The matric number of the user"]]:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
     try:
         payload: dict[str, str] = jwt.decode(
             token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -216,126 +153,129 @@ async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)
 
 @app.get(path="/generate-registration-options")
 def handler_generate_registration_options(token_type_and_matric_number: Annotated[list[str, str], Depends(decode_and_validate_token)]):
-    token_type, matric_number = token_type_and_matric_number
-    user_id: int = random.randint(1, 1000000)
-    registration_challenge: bytes = os.urandom(32)
+    try:
+        token_type, matric_number = token_type_and_matric_number
+        user_id: int = random.randint(1, 1000000)
+        registration_challenge: bytes = os.urandom(32)
 
-    with psycopg2.connect(**connection_params) as connection:
-        with connection.cursor() as cursor:
-            update_students_table_sql = "UPDATE students SET user_id = %s, registration_challenge = %s WHERE matric_number = %s;"
-            cursor.execute(update_students_table_sql,
-                           (user_id, registration_challenge, matric_number))
-            connection.commit()
+        with psycopg2.connect(**connection_params) as connection:
+            with connection.cursor() as cursor:
+                update_students_table_sql = "UPDATE students SET user_id = %s, registration_challenge = %s WHERE matric_number = %s;"
+                cursor.execute(update_students_table_sql,
+                               (user_id, registration_challenge, matric_number))
+                connection.commit()
 
-    options = generate_registration_options(
-        rp_id=RP_ID,
-        rp_name="Augmented Classroom",
-        user_id=str(user_id),
-        user_name=matric_number,
-        user_display_name=matric_number,
-        attestation=AttestationConveyancePreference.DIRECT,
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            authenticator_attachment=AuthenticatorAttachment.PLATFORM,
-            resident_key=ResidentKeyRequirement.REQUIRED,
-        ),
-        challenge=registration_challenge,
-        exclude_credentials=[],
-        supported_pub_key_algs=[
-            COSEAlgorithmIdentifier.ECDSA_SHA_256,
-            COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,
-        ],
-        timeout=60000
-    )
-
+        options = generate_registration_options(
+            rp_id=RP_ID,
+            rp_name="Augmented Classroom",
+            user_id=str(user_id),
+            user_name=matric_number,
+            user_display_name=matric_number,
+            attestation=AttestationConveyancePreference.DIRECT,
+            authenticator_selection=AuthenticatorSelectionCriteria(
+                authenticator_attachment=AuthenticatorAttachment.PLATFORM,
+                resident_key=ResidentKeyRequirement.REQUIRED,
+            ),
+            challenge=registration_challenge,
+            exclude_credentials=[],
+            supported_pub_key_algs=[
+                COSEAlgorithmIdentifier.ECDSA_SHA_256,
+                COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,
+            ],
+            timeout=60000
+        )
+    except Exception as err:
+        print("Error:", err)
     return options_to_json(options)
 
 
 @app.post(path="/verify-registration-response")
 async def handler_verify_registration_response(request: Request, token_type_and_matric_number: Annotated[list[str, str], Depends(decode_and_validate_token)]):
-    token_type, matric_number = token_type_and_matric_number
-    credential: dict = await request.json()  # returns a json object
-
-    select_user_info_from_students_table_sql = "SELECT registration_challenge FROM students WHERE matric_number = %s"
-    with psycopg2.connect(**connection_params) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                select_user_info_from_students_table_sql, (matric_number, ))
-            result = cursor.fetchone()
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="matric number not found.")
-    registration_challenge: bytes = bytes(result[0])
-
     try:
+        token_type, matric_number = token_type_and_matric_number
+        credential: dict = await request.json()  # returns a json object
+
+        select_user_info_from_students_table_sql = "SELECT registration_challenge FROM students WHERE matric_number = %s"
+        with psycopg2.connect(**connection_params) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    select_user_info_from_students_table_sql, (matric_number, ))
+                result = cursor.fetchone()
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="matric number not found.")
+        registration_challenge: bytes = bytes(result[0])
+
         verification = verify_registration_response(
             credential=credential,
             expected_challenge=registration_challenge,
             expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
+            expected_origin=WEBAUTHN_ORIGIN,
         )
+
+        # I am meant to store the credential and the user attached to this credential
+
+        transports: list = credential["response"]["transports"]
+        transports_string: str = ""
+        lenght_transports: int = len(transports)
+        for i, transport in enumerate(transports):
+            transports_string += transport
+            if i != lenght_transports - 1:
+                transports_string += ","
+
+        update_students_table_sql = "UPDATE students SET credential_id = %s, public_key = %s, sign_count = %s, transports = %s WHERE matric_number = %s"
+        with psycopg2.connect(**connection_params) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(update_students_table_sql, (verification.credential_id,
+                                                           verification.credential_public_key, verification.sign_count, transports_string, matric_number))
+                connection.commit()
 
     except Exception as err:
         print(err)
-
-    # I am meant to store the credential and the user attached to this credential
-
-    transports: list = credential["response"]["transports"]
-    transports_string: str = ""
-    lenght_transports: int = len(transports)
-    for i, transport in enumerate(transports):
-        transports_string += transport
-        if i != lenght_transports - 1:
-            transports_string += ","
-
-    update_students_table_sql = "UPDATE students SET credential_id = %s, public_key = %s, sign_count = %s, transports = %s WHERE matric_number = %s"
-    with psycopg2.connect(**connection_params) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(update_students_table_sql, (verification.credential_id,
-                           verification.credential_public_key, verification.sign_count, transports_string, matric_number))
-            connection.commit()
-
     return JSONResponse(status_code=status.HTTP_200_OK, content={"verified": True})
 
 
 @app.get(path="/generate-authentication-options")
 def handler_generate_authentication_options(token_type_and_matric_number: Annotated[list[str, str], Depends(decode_and_validate_token)]):
-    token_type, matric_number = token_type_and_matric_number
-    authentication_challenge: bytes = os.urandom(32)
+    try:
+        token_type, matric_number = token_type_and_matric_number
+        authentication_challenge: bytes = os.urandom(32)
 
-    with psycopg2.connect(**connection_params) as connection:
-        with connection.cursor() as cursor:
-            select_user_info_from_students_table_sql = "SELECT credential_id, transports FROM students WHERE matric_number = %s"
-            cursor.execute(
-                select_user_info_from_students_table_sql, (matric_number, ))
-            result = cursor.fetchone()
+        with psycopg2.connect(**connection_params) as connection:
+            with connection.cursor() as cursor:
+                select_user_info_from_students_table_sql = "SELECT credential_id, transports FROM students WHERE matric_number = %s"
+                cursor.execute(
+                    select_user_info_from_students_table_sql, (matric_number, ))
+                result = cursor.fetchone()
 
-            if not result:
+                if not result:
 
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="matric_number not found.")
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND, detail="matric_number not found.")
 
-            credential_id, transports = result
-            credential_id: bytes = bytes(credential_id)
-            insert_auth_challenge_into_students_table_sql = "UPDATE students SET authentication_challenge = %s WHERE matric_number = %s"
-            cursor.execute(insert_auth_challenge_into_students_table_sql,
-                           (authentication_challenge, matric_number))
-            connection.commit()
-    if transports:
-        transports = transports.split(",")
+                credential_id, transports = result
+                credential_id: bytes = bytes(credential_id)
+                insert_auth_challenge_into_students_table_sql = "UPDATE students SET authentication_challenge = %s WHERE matric_number = %s"
+                cursor.execute(insert_auth_challenge_into_students_table_sql,
+                               (authentication_challenge, matric_number))
+                connection.commit()
+        if transports:
+            transports = transports.split(",")
 
-    options = generate_authentication_options(
-        rp_id=RP_ID,
-        allow_credentials=[
-            {"type": "public-key", "id": credential_id, "transports": transports}
-        ],
-        user_verification=UserVerificationRequirement.REQUIRED,
-        challenge=authentication_challenge
-    )
-
+        options = generate_authentication_options(
+            rp_id=RP_ID,
+            allow_credentials=[
+                {"type": "public-key", "id": credential_id, "transports": transports}
+            ],
+            user_verification=UserVerificationRequirement.REQUIRED,
+            challenge=authentication_challenge
+        )
+    except Exception as err:
+        print("Error:", err)
     return options_to_json(options)
 
 
-@app.post("/verify-authentication-response")
+@app.post("/verify-authentication-response", response_class=JSONResponse)
 async def hander_verify_authentication_response(request: Request, token_type_and_matric_number: Annotated[list[str, str], Depends(decode_and_validate_token)]):
     try:
         token_type, matric_number = token_type_and_matric_number
@@ -370,7 +310,7 @@ async def hander_verify_authentication_response(request: Request, token_type_and
             credential=credential,
             expected_challenge=authentication_challenge,
             expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
+            expected_origin=WEBAUTHN_ORIGIN,
             credential_public_key=public_key,
             credential_current_sign_count=sign_count,
             require_user_verification=True,
@@ -384,23 +324,14 @@ async def hander_verify_authentication_response(request: Request, token_type_and
                 connection.commit()
 
     except Exception as err:
-        print(err)
+        print("Error:", err)
 
     return JSONResponse(content={"verified": True}, status_code=status.HTTP_200_OK)
-
-
-class RefreshToken(BaseModel):
-    refresh_token: str
 
 
 @app.post(path="/refresh")
 async def refresh(refresh_token: RefreshToken, access_token: Annotated[str, Depends(oauth2_scheme)]):
     refresh_token_str = refresh_token.refresh_token
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
     is_this_an_access_token, access_matric_number = await decode_and_validate_token(access_token)
     is_this_a_refresh_token, refresh_matric_number = await decode_and_validate_token(refresh_token_str)
     if not refresh_matric_number or not access_matric_number or refresh_matric_number != access_matric_number or is_this_a_refresh_token != "refresh" or is_this_an_access_token != "access":
@@ -410,6 +341,7 @@ async def refresh(refresh_token: RefreshToken, access_token: Annotated[str, Depe
     new_access_token = create_access_refresh_token(
         data={"sub": "access|" + token_data.matric_number}, expires_delta=access_token_expires
     )
-    return {"new_access_token": new_access_token, "token_type": "bearer"}
+    return TokenResponse(new_access_token=new_access_token, token_type="bearer")
 
-uvicorn.run(app=app, host="0.0.0.0")
+if __name__ == "__main__":
+    uvicorn.run(app=app, host="0.0.0.0")
