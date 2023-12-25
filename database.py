@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv(".env")
 
 postgres_db_url = os.getenv("DB_URL")
-# for some reason dude said to include this when working with fastapi
+# for some reason dude said to include this when working with fastapi and sqlite(only sqlite)
 connect_args = {"check_same_thread": False}
 sqlite_file_name = "students.db"
 sqlite_url = f"sqlite:///{sqlite_file_name}"

@@ -24,6 +24,11 @@ class StudentPydanticModel(BaseStudent):
     pass
 
 
+class StudentUpdateModel(BaseStudent):
+    matric_number: str | None = None
+    password: str | None = None
+
+
 class RefreshToken(BaseModel):
     refresh_token: str
 
