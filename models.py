@@ -1,16 +1,28 @@
+from sqlmodel import SQLModel, Field
 from pydantic import BaseModel
 from datetime import timedelta
+from uuid import UUID
 
 
-class Student(BaseModel):
-    matric_number: str
+class BaseStudent(SQLModel):
+    matric_number: str = Field(primary_key=True, max_length=15, min_length=5)
     password: str
+    credential_id: bytes | None = None
+    public_key: bytes | None = None
+    sign_count: int | None = None
+    user_id: UUID | None
+    transports: str | None = None
+    registration_challenge: bytes | None = None
+    authentication_challenge: bytearray | None = None
 
 
-class TokenData(BaseModel):
-    matric_number: str
-    # i don't want to use this since JWTError already takes care of the expiry of the jwt token
-    expire_time: timedelta | None = None
+class StudentSQLModel(BaseStudent, table=True):
+    pass
+
+
+class StudentPydanticModel(BaseStudent):
+    # I am making this one the same as BaseStudent in case of the future and we need to do something specially to StudentCreate
+    pass
 
 
 class RefreshToken(BaseModel):
