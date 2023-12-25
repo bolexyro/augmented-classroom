@@ -1,6 +1,5 @@
 from sqlmodel import SQLModel, Field
 from pydantic import BaseModel
-from datetime import timedelta
 from uuid import UUID
 
 
@@ -10,10 +9,10 @@ class BaseStudent(SQLModel):
     credential_id: bytes | None = None
     public_key: bytes | None = None
     sign_count: int | None = None
-    user_id: UUID | None
+    user_id: UUID | None = None
     transports: str | None = None
     registration_challenge: bytes | None = None
-    authentication_challenge: bytearray | None = None
+    authentication_challenge: bytes | None = None
 
 
 class StudentSQLModel(BaseStudent, table=True):

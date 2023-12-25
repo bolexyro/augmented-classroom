@@ -5,3 +5,5 @@ dockerfile
 Augmented Classrooms.pptx
 request_helper.py
 secret_keys.py
+students.db
+generate_valid_jwt_token.py

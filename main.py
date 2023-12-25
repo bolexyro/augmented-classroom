@@ -1,13 +1,11 @@
 from fastapi import FastAPI, HTTPException, Request, status, Depends
 from models import StudentSQLModel, StudentPydanticModel, RefreshToken, TokenResponse
-from database import engine
-from sqlmodel import Session, select, col, or_, create_engine
+from database import engine, create_db_and_tables
+from sqlmodel import Session, select
 from utils import create_access_refresh_token, get_password_hash, verify_password, verify_token_for_create_student_endpoint, oauth2_scheme, credentials_exception, incorrent_matric_number_or_password_exception
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-import random
 import os
-import psycopg2
 import uvicorn
 from dotenv import load_dotenv
 from typing import Annotated
@@ -33,31 +31,19 @@ from webauthn import (
 import uuid
 from sqlalchemy.exc import NoResultFound
 load_dotenv(".env")
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
+create_db_and_tables()
+
 WEBAUTHN_ORIGIN = os.getenv("WEBAUTHN_ORIGIN")
 CORS_ORIGIN = os.getenv("CORS_ORIGIN")
 RP_ID = os.getenv("RP_ID")
 SECRET_KEY = os.getenv("SECRET_KEY")
-SECRET_MESSAGE = os.getenv("SECRET_MESSAGE")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES: Annotated[int,
                                        "Number of minutes the access token is valid for. I am setting it to 15 minutes"] = float(os.getenv("ACCESS_TOKEN_DURATION"))
 REFRESH_TOKEN_EXPIRE_MINUTES: Annotated[int,
                                         "I am setting the refresh token time to 4hrs"] = 240
 
-connection_params = {"database": DB_NAME,
-                     "user": DB_USER,
-                     "host": DB_HOST,
-                     "password": DB_PASSWORD,
-                     "port": DB_PORT}
-
-
 app = FastAPI()
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -134,31 +120,30 @@ async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)
     except (JWTError, IndexError):
         raise credentials_exception
     # idk if there is a point of validating if the matric number exists since we alredy did that before the token was created.
-    with psycopg2.connect(**connection_params) as connection:
-        with connection.cursor() as cursor:
-            select_user_info_from_students_table = "SELECT matric_number FROM students WHERE matric_number = %s"
-            cursor.execute(select_user_info_from_students_table,
-                           (matric_number.upper(), ))
-            result: list[Annotated[str, "The matric number"]
-                         ] = cursor.fetchone()
-    if not result:
-        raise credentials_exception
-    return [access_or_refresh_token, result[0]]
+    with Session(engine) as session:
+        db_student = session.exec(select(StudentSQLModel).where(
+            StudentSQLModel.matric_number == matric_number)).first()
+        if not db_student:
+            raise credentials_exception
+        return [access_or_refresh_token, db_student.matric_number]
+
+DecodeValidateTokenDep = Annotated[list[str,
+                                        str], Depends(decode_and_validate_token)]
 
 
 @app.get(path="/generate-registration-options")
-def handler_generate_registration_options(token_type_and_matric_number: Annotated[list[str, str], Depends(decode_and_validate_token)]):
+def handler_generate_registration_options(*, session: Session = Depends(get_session), token_type_and_matric_number: DecodeValidateTokenDep):
     try:
         token_type, matric_number = token_type_and_matric_number
         user_id: uuid.UUID = uuid.uuid4()
         registration_challenge: bytes = os.urandom(32)
 
-        with psycopg2.connect(**connection_params) as connection:
-            with connection.cursor() as cursor:
-                update_students_table_sql = "UPDATE students SET user_id = %s, registration_challenge = %s WHERE matric_number = %s;"
-                cursor.execute(update_students_table_sql,
-                               (user_id, registration_challenge, matric_number))
-                connection.commit()
+        db_student = session.exec(select(StudentSQLModel).where(
+            StudentSQLModel.matric_number == matric_number)).one()
+        db_student.user_id = user_id
+        db_student.registration_challenge = registration_challenge
+        session.add(db_student)
+        session.commit()
 
         options = generate_registration_options(
             rp_id=RP_ID,
@@ -185,21 +170,16 @@ def handler_generate_registration_options(token_type_and_matric_number: Annotate
 
 
 @app.post(path="/verify-registration-response")
-async def handler_verify_registration_response(request: Request, token_type_and_matric_number: Annotated[list[str, str], Depends(decode_and_validate_token)]):
+async def handler_verify_registration_response(*, request: Request, session: Session = Depends(get_session), token_type_and_matric_number: DecodeValidateTokenDep):
     try:
         token_type, matric_number = token_type_and_matric_number
         credential: dict = await request.json()  # returns a json object
 
-        select_user_info_from_students_table_sql = "SELECT registration_challenge FROM students WHERE matric_number = %s"
-        with psycopg2.connect(**connection_params) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    select_user_info_from_students_table_sql, (matric_number, ))
-                result = cursor.fetchone()
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="matric number not found.")
-        registration_challenge: bytes = bytes(result[0])
+        db_student = session.exec(select(StudentSQLModel).where(
+            StudentSQLModel.matric_number == matric_number)).one()
+
+        registration_challenge: bytes = bytes(
+            db_student.registration_challenge)
 
         verification = verify_registration_response(
             credential=credential,
@@ -207,9 +187,7 @@ async def handler_verify_registration_response(request: Request, token_type_and_
             expected_rp_id=RP_ID,
             expected_origin=WEBAUTHN_ORIGIN,
         )
-
         # I am meant to store the credential and the user attached to this credential
-
         transports: list = credential["response"]["transports"]
         transports_string: str = ""
         lenght_transports: int = len(transports)
@@ -218,12 +196,12 @@ async def handler_verify_registration_response(request: Request, token_type_and_
             if i != lenght_transports - 1:
                 transports_string += ","
 
-        update_students_table_sql = "UPDATE students SET credential_id = %s, public_key = %s, sign_count = %s, transports = %s WHERE matric_number = %s"
-        with psycopg2.connect(**connection_params) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(update_students_table_sql, (verification.credential_id,
-                                                           verification.credential_public_key, verification.sign_count, transports_string, matric_number))
-                connection.commit()
+        db_student.credential_id = verification.credential_id
+        db_student.public_key = verification.credential_public_key
+        db_student.sign_count = verification.sign_count
+        db_student.transports = transports_string
+        session.add(db_student)
+        session.commit()
 
     except Exception as err:
         print(err)
@@ -231,29 +209,19 @@ async def handler_verify_registration_response(request: Request, token_type_and_
 
 
 @app.get(path="/generate-authentication-options")
-def handler_generate_authentication_options(token_type_and_matric_number: Annotated[list[str, str], Depends(decode_and_validate_token)]):
+def handler_generate_authentication_options(session: Annotated[Session, Depends(get_session)], token_type_and_matric_number: DecodeValidateTokenDep):
     try:
         token_type, matric_number = token_type_and_matric_number
         authentication_challenge: bytes = os.urandom(32)
 
-        with psycopg2.connect(**connection_params) as connection:
-            with connection.cursor() as cursor:
-                select_user_info_from_students_table_sql = "SELECT credential_id, transports FROM students WHERE matric_number = %s"
-                cursor.execute(
-                    select_user_info_from_students_table_sql, (matric_number, ))
-                result = cursor.fetchone()
+        db_student = session.exec(select(StudentSQLModel).where(
+            StudentSQLModel.matric_number == matric_number)).one()
+        credential_id, transports = db_student.credential_id, db_student.transports
+        credential_id: bytes = bytes(credential_id)
+        db_student.authentication_challenge = authentication_challenge
+        session.add(db_student)
+        session.commit()
 
-                if not result:
-
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND, detail="matric_number not found.")
-
-                credential_id, transports = result
-                credential_id: bytes = bytes(credential_id)
-                insert_auth_challenge_into_students_table_sql = "UPDATE students SET authentication_challenge = %s WHERE matric_number = %s"
-                cursor.execute(insert_auth_challenge_into_students_table_sql,
-                               (authentication_challenge, matric_number))
-                connection.commit()
         if transports:
             transports = transports.split(",")
 
@@ -271,23 +239,17 @@ def handler_generate_authentication_options(token_type_and_matric_number: Annota
 
 
 @app.post("/verify-authentication-response", response_class=JSONResponse)
-async def hander_verify_authentication_response(request: Request, token_type_and_matric_number: Annotated[list[str, str], Depends(decode_and_validate_token)]):
+async def hander_verify_authentication_response(*, request: Request, session: Session = Depends(get_session), token_type_and_matric_number: DecodeValidateTokenDep):
     try:
         token_type, matric_number = token_type_and_matric_number
         credential: dict = await request.json()  # returns a json object
         # Find the user's corresponding public key
         raw_id_bytes: bytes = base64url_to_bytes(credential["rawId"])
-        with psycopg2.connect(**connection_params) as connection:
-            with connection.cursor() as cursor:
-                select_user_info_from_students_table_sql = "SELECT credential_id, authentication_challenge, public_key, sign_count FROM students WHERE matric_number = %s"
-                cursor.execute(
-                    select_user_info_from_students_table_sql, (matric_number, ))
-                result = cursor.fetchone()
 
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="matric_number not found.")
-        credential_id, authentication_challenge, public_key, sign_count = result
+        db_student = session.exec(select(StudentSQLModel).where(
+            StudentSQLModel.matric_number == matric_number)).one()
+
+        credential_id, authentication_challenge, public_key, sign_count = db_student.credential_id, db_student.authentication_challenge, db_student.public_key, db_student.sign_count
 
         credential_id: bytes = bytes(credential_id)
         authentication_challenge: bytes = bytes(authentication_challenge)
@@ -298,7 +260,8 @@ async def hander_verify_authentication_response(request: Request, token_type_and
             user_credential = True  # we could set it to anything as long as it is not None
 
         if user_credential is None:
-            raise Exception("Could not find corresponding public key in DB")
+            raise Exception(
+                "Could not find corresponding public key in DB")
 
         # Verify the assertion
         verification = verify_authentication_response(
@@ -311,12 +274,9 @@ async def hander_verify_authentication_response(request: Request, token_type_and
             require_user_verification=True,
         )
         # Update our credential's sign count to what the authenticator says it is now
-        with psycopg2.connect(**connection_params) as connection:
-            with connection.cursor() as cursor:
-                update_user_sign_count_in_students_table_sql = "UPDATE students SET sign_count = %s WHERE matric_number=%s"
-                cursor.execute(update_user_sign_count_in_students_table_sql,
-                               (verification.new_sign_count, matric_number))
-                connection.commit()
+        db_student.sign_count = verification.new_sign_count
+        session.add(db_student)
+        session.commit()
 
     except Exception as err:
         print("Error:", err)
