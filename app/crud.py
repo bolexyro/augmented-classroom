@@ -1,11 +1,11 @@
 from sqlmodel import Session, select
 from .models import Student, StudentPydanticModel, StudentUpdateModel
-from .utils import get_password_hash
 from sqlalchemy.exc import NoResultFound
 from typing import Optional
 
 
 def create_student(session: Session, student: StudentPydanticModel) -> Student | None:
+    from .utils import get_password_hash
     student.password = get_password_hash(student.password)
     student.matric_number = student.matric_number.upper()
     db_student = Student.model_validate(student)

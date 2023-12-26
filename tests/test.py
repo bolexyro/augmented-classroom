@@ -10,9 +10,9 @@ from fastapi.testclient import TestClient
 from sqlmodel.pool import StaticPool
 from sqlmodel import SQLModel, create_engine, Session
 
-from main import get_session, app
 from app.models import Student
 from app.utils import get_password_hash
+from main import get_session, app
 load_dotenv(".env")
 
 

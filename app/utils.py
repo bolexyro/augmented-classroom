@@ -50,6 +50,7 @@ def create_access_refresh_token(data: dict, expires_delta: timedelta | None = No
 
 
 async def decode_and_validate_token(token: str, session: Session | None = None , token_expected: str = "access") -> Annotated[str | bool, "The matric number of the user or True"]:
+    from . import crud 
     try:
         if not session:
             print("hello world")
