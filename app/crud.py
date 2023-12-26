@@ -17,8 +17,7 @@ def create_student(session: Session, student: StudentPydanticModel) -> Student |
     return None
 
 
-# it is meant to
-# if you do StudentSQLModel, you would not get the editor support you should get
+# if you do StudentSQLModel | None in the annotation for what is meant to be returned, you would not get the editor support you should get
 def get_student(session: Session, matric_number: str) -> Optional[Student]:
     try:
         matric_number = matric_number.upper()
