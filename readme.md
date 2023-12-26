@@ -18,16 +18,7 @@ The Augmented Classroom project addresses these challenges through a tech-driven
 3. **User-Friendly Interface:**
    - The platform features an intuitive interface for lecturers and students, simplifying navigation and usage. 🖥️👩‍🏫
 
-4. **Real-Time Interaction:**
-   - Live chat and Q&A sessions foster real-time engagement between lecturers and students during virtual classes. 💬👥
-
-5. **Scalability:**
-   - The system is designed to scale efficiently, accommodating a large number of students accessing the virtual classroom simultaneously. 📈👨‍🎓
-
-6. **Security:**
-   - Robust security measures, including encryption, safeguard user data and ensure compliance with data protection regulations. 🔐🛡️
-
-7. **Device Compatibility:**
+4. **Device Compatibility:**
    - Accessible on various devices, the platform caters to diverse student preferences and capabilities. 📱💻
 
 The Augmented Classroom project transforms traditional classrooms into dynamic, inclusive, and secure learning environments, enhancing the overall educational experience in Nigerian public universities. 🚀🎓
