@@ -1,9 +1,10 @@
-import app.crud as crud
 from fastapi import FastAPI, HTTPException, Request, status, Depends
-from app.models import StudentPydanticModel, RefreshToken, TokenResponse, StudentUpdateModel
+# The name of the module crud is app.crud. So, when we do fron .utils import models, we are telling it to go up one directory from app.crud to app and then access the module models there
+import app.crud as crud
 from app.database import engine
-from sqlmodel import Session
+from app.models import StudentPydanticModel, RefreshToken, TokenResponse, StudentUpdateModel
 from app.utils import create_access_refresh_token, verify_password, verify_token_for_create_student_endpoint, oauth2_scheme, credentials_exception, incorrent_matric_number_or_password_exception
+from sqlmodel import Session
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
