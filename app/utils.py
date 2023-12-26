@@ -6,6 +6,9 @@ from passlib.context import CryptContext
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import os
+from sqlmodel import Session
+from . import crud
+
 load_dotenv(".env")
 
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -22,7 +25,7 @@ incorrent_matric_number_or_password_exception = HTTPException(
 
 credentials_exception = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Could not validate jokes on ocredentials",
+    detail="Could not validate credentials",
     headers={"WWW-Authenticate": "Bearer"},
 )
 
@@ -35,18 +38,6 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-async def verify_token_for_create_student_endpoint(authorization: Annotated[HTTPAuthorizationCredentials, Depends(token_auth_scheme)]):
-    token = authorization.credentials
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        message: str = payload.get("sub")
-        if message is None or message != SECRET_MESSAGE:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    return True
-
-
 def create_access_refresh_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
     if expires_delta:
@@ -56,3 +47,28 @@ def create_access_refresh_token(data: dict, expires_delta: timedelta | None = No
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+async def decode_and_validate_token(token: str, session: Session | None = None , token_expected: str = "acess") -> Annotated[str | bool, "The matric number of the user or True"]:
+    try:
+        if not session:
+            print("hello world")
+            assert token_expected == "create_student_token"
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            message: str = payload.get("sub")
+            if message is None or message != SECRET_MESSAGE:
+                raise credentials_exception
+            return True
+        payload: dict[str, str] = jwt.decode(
+            token, SECRET_KEY, algorithms=[ALGORITHM])
+        access_or_refresh_token: Annotated[str, "access if it is an access token else refresh"] = payload.get(
+            "sub").split("|")[0]
+        matric_number: str = payload.get("sub").split("|")[1]
+        if matric_number is None or access_or_refresh_token != token_expected:
+            raise credentials_exception
+    except (JWTError, IndexError):
+        raise credentials_exception
+    db_student = crud.get_student(session, matric_number)
+    if not db_student:
+        raise credentials_exception
+    return db_student.matric_number

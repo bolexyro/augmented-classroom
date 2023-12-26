@@ -1,16 +1,16 @@
-import os
 import sys
 import pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 print(sys.path)
-from app.utils import get_password_hash
-from app.models import Student
-from sqlmodel.pool import StaticPool
-from dotenv import load_dotenv
-from main import get_session, app
-from fastapi.testclient import TestClient
-from sqlmodel import SQLModel, create_engine, Session
 import pytest
+from sqlmodel import SQLModel, create_engine, Session
+from fastapi.testclient import TestClient
+from main import get_session, app
+from dotenv import load_dotenv
+from sqlmodel.pool import StaticPool
+from app.models import Student
+from app.utils import get_password_hash
+import os
 load_dotenv(".env")
 
 
@@ -200,5 +200,4 @@ def test_refresh_incorrect_refresh_token(session: Session, client: TestClient):
 
     assert response.status_code == 401
 
-# for the operations that depend on decode and validate token, make sure they are using access token to access those endpoints like generate-registration-options
 # So i am not going to be testing those webauthn endpoints because i need the front end for it to work really well
