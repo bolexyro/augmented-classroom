@@ -17,7 +17,7 @@ conn = psycopg2.connect(database=db,
 
 # SQL statement to create the table
 create_table_sql = """
-CREATE TABLE students(
+CREATE TABLE student(
 matric_number VARCHAR(15) PRIMARY KEY,
 password TEXT,
 credential_id bytea,
@@ -37,6 +37,6 @@ cursor.execute(create_table_sql)
 # Commit the transaction
 conn.commit()
 
-print("Table 'students' created successfully.")
+print("Table 'student' created successfully.")
 cursor.close()
 conn.close()

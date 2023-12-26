@@ -15,13 +15,18 @@ class BaseStudent(SQLModel):
     authentication_challenge: bytes | None = None
 
 
-class StudentSQLModel(BaseStudent, table=True):
+class Student(BaseStudent, table=True):
     pass
 
 
 class StudentPydanticModel(BaseStudent):
     # I am making this one the same as BaseStudent in case of the future and we need to do something specially to StudentCreate
     pass
+
+
+class StudentUpdateModel(BaseStudent):
+    matric_number: str | None = None
+    password: str | None = None
 
 
 class RefreshToken(BaseModel):

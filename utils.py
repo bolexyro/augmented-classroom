@@ -22,7 +22,7 @@ incorrent_matric_number_or_password_exception = HTTPException(
 
 credentials_exception = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Could not validate credentials",
+    detail="Could not validate jokes on ocredentials",
     headers={"WWW-Authenticate": "Bearer"},
 )
 

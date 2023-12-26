@@ -1,8 +1,9 @@
+import crud
 from fastapi import FastAPI, HTTPException, Request, status, Depends
-from models import StudentSQLModel, StudentPydanticModel, RefreshToken, TokenResponse
-from database import engine, create_db_and_tables
-from sqlmodel import Session, select
-from utils import create_access_refresh_token, get_password_hash, verify_password, verify_token_for_create_student_endpoint, oauth2_scheme, credentials_exception, incorrent_matric_number_or_password_exception
+from models import StudentPydanticModel, RefreshToken, TokenResponse, StudentUpdateModel
+from database import engine
+from sqlmodel import Session
+from utils import create_access_refresh_token, verify_password, verify_token_for_create_student_endpoint, oauth2_scheme, credentials_exception, incorrent_matric_number_or_password_exception
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -29,9 +30,7 @@ from webauthn import (
     base64url_to_bytes
 )
 import uuid
-from sqlalchemy.exc import NoResultFound
 load_dotenv(".env")
-create_db_and_tables()
 
 WEBAUTHN_ORIGIN = os.getenv("WEBAUTHN_ORIGIN")
 CORS_ORIGIN = os.getenv("CORS_ORIGIN")
@@ -64,32 +63,25 @@ def get_session():
         yield session
 
 
-@app.post(path="/create-student")
-def create_user(*, session: Session = Depends(get_session), student: StudentPydanticModel, token_is_verified: Annotated[bool, Depends(verify_token_for_create_student_endpoint)]):
-    if token_is_verified:
-        student.password = get_password_hash(student.password)
-        db_student = StudentSQLModel.model_validate(student)
-        db_student.matric_number = db_student.matric_number.upper()
-        if not session.get(StudentSQLModel, db_student.matric_number):
-            session.add(db_student)
-            session.commit()
-            response_data = {"message": "Student created."}
-            return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                            detail="Student already exists.")
+@app.post(path="/create-student", dependencies=[Depends(verify_token_for_create_student_endpoint)])
+def create_student(*, session: Session = Depends(get_session), student: StudentPydanticModel):
+    db_student = crud.create_student(session, student)
+    if db_student:
+        response_data = {"message": "Student created."}
+        return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                        detail="Student already exists.")
 
 
 @app.post(path="/verify-student", response_model=TokenResponse)
 # mosh is going to send the matric number and email as form data now
 # def get_user(username: Annotated[str, Form(title="The matric number of the student.")], password: Annotated[str, Form(title="The password of the student")]):
-def get_user(student: StudentPydanticModel, session: Session = Depends(get_session)):
+def verify_student(student: StudentPydanticModel, session: Session = Depends(get_session)):
     # to follow the specs of oauth2, that is why i am using username
     # matric_number = username
-    try:
-        db_student = session.exec(select(StudentSQLModel).where(
-            StudentSQLModel.matric_number == student.matric_number)).one()
-    except NoResultFound:
-        # Wrong matric number
+
+    db_student = crud.get_student(session, student.matric_number)
+    if not db_student:
         raise incorrent_matric_number_or_password_exception
     retrieved_password: Annotated[str,
                                   "The hashed password"] = db_student.password
@@ -108,7 +100,7 @@ def get_user(student: StudentPydanticModel, session: Session = Depends(get_sessi
     return TokenResponse(access_token=access_token, token_type="bearer", refresh_token=refresh_token)
 
 
-async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)]) -> list[Annotated[str, "Whether or not the token is an access or refresh"], Annotated[str, "The matric number of the user"]]:
+async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)], session: Session = Depends(get_session)) -> list[Annotated[str, "Whether or not the token is an access or refresh"], Annotated[str, "The matric number of the user"]]:
     try:
         payload: dict[str, str] = jwt.decode(
             token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -120,12 +112,10 @@ async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)
     except (JWTError, IndexError):
         raise credentials_exception
     # idk if there is a point of validating if the matric number exists since we alredy did that before the token was created.
-    with Session(engine) as session:
-        db_student = session.exec(select(StudentSQLModel).where(
-            StudentSQLModel.matric_number == matric_number)).first()
-        if not db_student:
-            raise credentials_exception
-        return [access_or_refresh_token, db_student.matric_number]
+    db_student = crud.get_student(session, matric_number)
+    if not db_student:
+        raise credentials_exception
+    return [access_or_refresh_token, db_student.matric_number]
 
 DecodeValidateTokenDep = Annotated[list[str,
                                         str], Depends(decode_and_validate_token)]
@@ -134,17 +124,12 @@ DecodeValidateTokenDep = Annotated[list[str,
 @app.get(path="/generate-registration-options")
 def handler_generate_registration_options(*, session: Session = Depends(get_session), token_type_and_matric_number: DecodeValidateTokenDep):
     try:
-        token_type, matric_number = token_type_and_matric_number
+        matric_number = token_type_and_matric_number[1]
         user_id: uuid.UUID = uuid.uuid4()
         registration_challenge: bytes = os.urandom(32)
-
-        db_student = session.exec(select(StudentSQLModel).where(
-            StudentSQLModel.matric_number == matric_number)).one()
-        db_student.user_id = user_id
-        db_student.registration_challenge = registration_challenge
-        session.add(db_student)
-        session.commit()
-
+        update_data = StudentUpdateModel(
+            user_id=user_id, registration_challenge=registration_challenge)
+        crud.update_student(session, matric_number, update_data)
         options = generate_registration_options(
             rp_id=RP_ID,
             rp_name="Augmented Classroom",
@@ -172,12 +157,9 @@ def handler_generate_registration_options(*, session: Session = Depends(get_sess
 @app.post(path="/verify-registration-response")
 async def handler_verify_registration_response(*, request: Request, session: Session = Depends(get_session), token_type_and_matric_number: DecodeValidateTokenDep):
     try:
-        token_type, matric_number = token_type_and_matric_number
+        matric_number = token_type_and_matric_number[1]
         credential: dict = await request.json()  # returns a json object
-
-        db_student = session.exec(select(StudentSQLModel).where(
-            StudentSQLModel.matric_number == matric_number)).one()
-
+        db_student = crud.get_student(session, matric_number)
         registration_challenge: bytes = bytes(
             db_student.registration_challenge)
 
@@ -196,32 +178,28 @@ async def handler_verify_registration_response(*, request: Request, session: Ses
             if i != lenght_transports - 1:
                 transports_string += ","
 
-        db_student.credential_id = verification.credential_id
-        db_student.public_key = verification.credential_public_key
-        db_student.sign_count = verification.sign_count
-        db_student.transports = transports_string
-        session.add(db_student)
-        session.commit()
+        update_data = StudentUpdateModel(credential_id=verification.credential_id, public_key=verification.credential_public_key,
+                                         sign_count=verification.sign_count, transports=transports_string)
+        crud.update_student(session, matric_number, update_data)
 
     except Exception as err:
         print(err)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     return JSONResponse(status_code=status.HTTP_200_OK, content={"verified": True})
 
 
 @app.get(path="/generate-authentication-options")
 def handler_generate_authentication_options(session: Annotated[Session, Depends(get_session)], token_type_and_matric_number: DecodeValidateTokenDep):
     try:
-        token_type, matric_number = token_type_and_matric_number
+        matric_number = token_type_and_matric_number[1]
         authentication_challenge: bytes = os.urandom(32)
 
-        db_student = session.exec(select(StudentSQLModel).where(
-            StudentSQLModel.matric_number == matric_number)).one()
+        db_student = crud.get_student(session, matric_number)
         credential_id, transports = db_student.credential_id, db_student.transports
         credential_id: bytes = bytes(credential_id)
-        db_student.authentication_challenge = authentication_challenge
-        session.add(db_student)
-        session.commit()
 
+        crud.update_student(session, matric_number, StudentUpdateModel(
+            authentication_challenge=authentication_challenge))
         if transports:
             transports = transports.split(",")
 
@@ -235,20 +213,19 @@ def handler_generate_authentication_options(session: Annotated[Session, Depends(
         )
     except Exception as err:
         print("Error:", err)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     return options_to_json(options)
 
 
 @app.post("/verify-authentication-response", response_class=JSONResponse)
 async def hander_verify_authentication_response(*, request: Request, session: Session = Depends(get_session), token_type_and_matric_number: DecodeValidateTokenDep):
     try:
-        token_type, matric_number = token_type_and_matric_number
+        matric_number = token_type_and_matric_number[1]
         credential: dict = await request.json()  # returns a json object
         # Find the user's corresponding public key
         raw_id_bytes: bytes = base64url_to_bytes(credential["rawId"])
 
-        db_student = session.exec(select(StudentSQLModel).where(
-            StudentSQLModel.matric_number == matric_number)).one()
-
+        db_student = crud.get_student(session, matric_number)
         credential_id, authentication_challenge, public_key, sign_count = db_student.credential_id, db_student.authentication_challenge, db_student.public_key, db_student.sign_count
 
         credential_id: bytes = bytes(credential_id)
@@ -274,21 +251,22 @@ async def hander_verify_authentication_response(*, request: Request, session: Se
             require_user_verification=True,
         )
         # Update our credential's sign count to what the authenticator says it is now
-        db_student.sign_count = verification.new_sign_count
-        session.add(db_student)
-        session.commit()
+        crud.update_student(session, matric_number, StudentUpdateModel(
+            sign_count=verification.new_sign_count))
 
     except Exception as err:
         print("Error:", err)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     return JSONResponse(content={"verified": True}, status_code=status.HTTP_200_OK)
 
 
 @app.post(path="/refresh")
-async def refresh(refresh_token: RefreshToken, access_token: Annotated[str, Depends(oauth2_scheme)]):
+async def refresh(refresh_token: RefreshToken, access_token: Annotated[str, Depends(oauth2_scheme)], session: Session = Depends(get_session)):
     refresh_token_str = refresh_token.refresh_token
-    is_this_an_access_token, access_matric_number = await decode_and_validate_token(access_token)
-    is_this_a_refresh_token, refresh_matric_number = await decode_and_validate_token(refresh_token_str)
+    # we are passing the session argument as well as the token explicitly because unlike those endpoint or path operations head, this is a regular calling of a function and FastAPi isn't helping us with any dependency injection
+    is_this_an_access_token, access_matric_number = await decode_and_validate_token(access_token, session)
+    is_this_a_refresh_token, refresh_matric_number = await decode_and_validate_token(refresh_token_str, session)
     if not refresh_matric_number or not access_matric_number or refresh_matric_number != access_matric_number or is_this_a_refresh_token != "refresh" or is_this_an_access_token != "access":
         raise credentials_exception
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
