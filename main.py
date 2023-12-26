@@ -101,14 +101,14 @@ def verify_student(student: StudentPydanticModel, session: Session = Depends(get
     return TokenResponse(access_token=access_token, token_type="bearer", refresh_token=refresh_token)
 
 
-async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)], session: Session = Depends(get_session)) -> list[Annotated[str, "Whether or not the token is an access or refresh"], Annotated[str, "The matric number of the user"]]:
+async def decode_and_validate_token(token: Annotated[str, Depends(oauth2_scheme)], session: Session = Depends(get_session), token_expected: str = "acess") -> list[Annotated[str, "Whether or not the token is an access or refresh"], Annotated[str, "The matric number of the user"]]:
     try:
         payload: dict[str, str] = jwt.decode(
             token, SECRET_KEY, algorithms=[ALGORITHM])
         access_or_refresh_token: Annotated[str, "access if it is an access token else refresh"] = payload.get(
             "sub").split("|")[0]
         matric_number: str = payload.get("sub").split("|")[1]
-        if matric_number is None:
+        if matric_number is None or access_or_refresh_token != token_expected:
             raise credentials_exception
     except (JWTError, IndexError):
         raise credentials_exception
@@ -266,8 +266,8 @@ async def hander_verify_authentication_response(*, request: Request, session: Se
 async def refresh(refresh_token: RefreshToken, access_token: Annotated[str, Depends(oauth2_scheme)], session: Session = Depends(get_session)):
     refresh_token_str = refresh_token.refresh_token
     # we are passing the session argument as well as the token explicitly because unlike those endpoint or path operations head, this is a regular calling of a function and FastAPi isn't helping us with any dependency injection
-    is_this_an_access_token, access_matric_number = await decode_and_validate_token(access_token, session)
-    is_this_a_refresh_token, refresh_matric_number = await decode_and_validate_token(refresh_token_str, session)
+    is_this_an_access_token, access_matric_number = await decode_and_validate_token(access_token, session, token_expected="access")
+    is_this_a_refresh_token, refresh_matric_number = await decode_and_validate_token(refresh_token_str, session, token_expected="refresh")
     if not refresh_matric_number or not access_matric_number or refresh_matric_number != access_matric_number or is_this_a_refresh_token != "refresh" or is_this_an_access_token != "access":
         raise credentials_exception
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
