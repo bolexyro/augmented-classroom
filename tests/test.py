@@ -1,12 +1,16 @@
 import os
-import pytest
-from sqlmodel import SQLModel, create_engine, Session
-from fastapi.testclient import TestClient
-from main import get_session, app
-from dotenv import load_dotenv
-from sqlmodel.pool import StaticPool
-from app.models import Student
+import sys
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
+print(sys.path)
 from app.utils import get_password_hash
+from app.models import Student
+from sqlmodel.pool import StaticPool
+from dotenv import load_dotenv
+from main import get_session, app
+from fastapi.testclient import TestClient
+from sqlmodel import SQLModel, create_engine, Session
+import pytest
 load_dotenv(".env")
 
 
