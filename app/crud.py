@@ -1,6 +1,6 @@
 from sqlmodel import Session, select
-from models import Student, StudentPydanticModel, StudentUpdateModel
-from utils import get_password_hash
+from app.models import Student, StudentPydanticModel, StudentUpdateModel
+from app.utils import get_password_hash
 from sqlalchemy.exc import NoResultFound
 from typing import Optional
 

@@ -1,9 +1,9 @@
-import crud
+import app.crud as crud
 from fastapi import FastAPI, HTTPException, Request, status, Depends
-from models import StudentPydanticModel, RefreshToken, TokenResponse, StudentUpdateModel
-from database import engine
+from app.models import StudentPydanticModel, RefreshToken, TokenResponse, StudentUpdateModel
+from app.database import engine
 from sqlmodel import Session
-from utils import create_access_refresh_token, verify_password, verify_token_for_create_student_endpoint, oauth2_scheme, credentials_exception, incorrent_matric_number_or_password_exception
+from app.utils import create_access_refresh_token, verify_password, verify_token_for_create_student_endpoint, oauth2_scheme, credentials_exception, incorrent_matric_number_or_password_exception
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os

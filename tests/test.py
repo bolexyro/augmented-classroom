@@ -5,8 +5,8 @@ from fastapi.testclient import TestClient
 from main import get_session, app
 from dotenv import load_dotenv
 from sqlmodel.pool import StaticPool
-from models import Student
-from utils import get_password_hash
+from app.models import Student
+from app.utils import get_password_hash
 load_dotenv(".env")
 
 
