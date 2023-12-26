@@ -15,7 +15,7 @@ class BaseStudent(SQLModel):
     authentication_challenge: bytes | None = None
 
 
-class StudentSQLModel(BaseStudent, table=True):
+class Student(BaseStudent, table=True):
     pass
 
 
