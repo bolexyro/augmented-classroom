@@ -1,5 +1,5 @@
-from fastapi import HTTPException, status, Depends
-from fastapi.security import HTTPAuthorizationCredentials, OAuth2PasswordBearer, HTTPBearer
+from fastapi import HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, HTTPBearer
 from typing import Annotated
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -49,7 +49,7 @@ def create_access_refresh_token(data: dict, expires_delta: timedelta | None = No
     return encoded_jwt
 
 
-async def decode_and_validate_token(token: str, session: Session | None = None , token_expected: str = "acess") -> Annotated[str | bool, "The matric number of the user or True"]:
+async def decode_and_validate_token(token: str, session: Session | None = None , token_expected: str = "access") -> Annotated[str | bool, "The matric number of the user or True"]:
     try:
         if not session:
             print("hello world")

@@ -2,15 +2,17 @@ import sys
 import pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 print(sys.path)
+import os
 import pytest
-from sqlmodel import SQLModel, create_engine, Session
-from fastapi.testclient import TestClient
-from main import get_session, app
 from dotenv import load_dotenv
+
+from fastapi.testclient import TestClient
 from sqlmodel.pool import StaticPool
+from sqlmodel import SQLModel, create_engine, Session
+
+from main import get_session, app
 from app.models import Student
 from app.utils import get_password_hash
-import os
 load_dotenv(".env")
 
 
@@ -91,23 +93,23 @@ def test_verify_student_wrong_info(client: TestClient):
     assert response.status_code == 401
 
 
-# def test_generate_registration_options(session: Session, client: TestClient):
-#     student = StudentSQLModel(
-#         matric_number="21CG029882", password=get_password_hash("password"))
+def test_generate_registration_options(session: Session, client: TestClient):
+    student = Student(
+        matric_number="21CG029882", password=get_password_hash("password"))
 
-#     # We need to create this student because the dependencies query the database to ensure the matric_number in the jwt is valid
-#     session.add(student)
-#     session.commit()
+    # We need to create this student because the dependencies query the database to ensure the matric_number in the jwt is valid
+    session.add(student)
+    session.commit()
 
-#     response = client.get(
-#         url="/generate-registration-options",
-#         headers={"Authorization": "Bearer " + test_access_token}
-#     )
-#     assert response.status_code == 200
+    response = client.get(
+        url="/generate-registration-options",
+        headers={"Authorization": "Bearer " + test_access_token}
+    )
+    assert response.status_code == 200
 
 
 # def test_verify_registration_options(session: Session, client: TestClient):
-#     student = StudentSQLModel(
+#     student = Student(
 #         matric_number="21CG029882", password=get_password_hash("password"))
 
 #     session.add(student)
@@ -126,7 +128,7 @@ def test_verify_student_wrong_info(client: TestClient):
 
 
 # def test_generate_authentication_options(session: Session, client: TestClient):
-#     student = StudentSQLModel(
+#     student = Student(
 #         matric_number="21CG029882", password=get_password_hash("password"))
 
 #     session.add(student)
@@ -141,7 +143,7 @@ def test_verify_student_wrong_info(client: TestClient):
 
 
 # def test_verify_authentication_options(session: Session, client: TestClient):
-#     student =  QLModel(
+#     student = Student(
 #         matric_number="21CG029882", password=get_password_hash("password"))
 
 #     session.add(student)
@@ -157,7 +159,7 @@ def test_verify_student_wrong_info(client: TestClient):
 
 def test_refresh(session: Session, client: TestClient):
     student = Student(
-        matric_number="21CG029884", password=get_password_hash("password"))
+        matric_number="21CG029882", password=get_password_hash("password"))
 
     session.add(student)
     session.commit()
@@ -173,7 +175,7 @@ def test_refresh(session: Session, client: TestClient):
 
 def test_refresh_incorrect_access_token(session: Session, client: TestClient):
     student = Student(
-        matric_number="21CG029885", password=get_password_hash("password"))
+        matric_number="21CG029882", password=get_password_hash("password"))
 
     session.add(student)
     session.commit()
@@ -188,7 +190,7 @@ def test_refresh_incorrect_access_token(session: Session, client: TestClient):
 
 def test_refresh_incorrect_refresh_token(session: Session, client: TestClient):
     student = Student(
-        matric_number="21CG029886", password=get_password_hash("password"))
+        matric_number="21CG029882", password=get_password_hash("password"))
 
     session.add(student)
     session.commit()
