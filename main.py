@@ -179,7 +179,7 @@ async def refresh(refresh_token: RefreshToken, access_token: ExtractTokenDep, se
     new_access_token = create_access_refresh_token(
         data={"sub": "access|" + access_matric_number}, expires_delta=access_token_expires
     )
-    return TokenResponse(new_access_token=new_access_token, token_type="bearer")
+    return TokenResponse(new_access_token=new_access_token, token_type="bearer").model_dump(exclude_unset=True)
 
 if __name__ == "__main__":
     uvicorn.run(app=app, host="0.0.0.0")
