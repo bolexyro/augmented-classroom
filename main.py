@@ -98,7 +98,7 @@ def verify_student(student: StudentPydanticModel, session: GetSessionDep):
 async def handler_generate_registration_options(*, matric_number: str, session: GetSessionDep, authorization: Annotated[HTTPAuthorizationCredentials, Depends(token_auth_scheme)]):
     token = authorization.credentials
     # decode_and_validate_token here can only return True if anything wrong happens it raises a credential error
-    validated = await decode_and_validate_token(token=token, session=session, token_expected="create_student_token")
+    validated = await decode_and_validate_token(token=token, token_expected="create_student_token")
     user_id: uuid.UUID = uuid.uuid4()
     registration_challenge: bytes = os.urandom(32)
     update_data = StudentUpdateModel(
