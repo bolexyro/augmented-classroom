@@ -52,11 +52,12 @@ def get_session():
 GetSessionDep = Annotated[Session, Depends(get_session)]
 ExtractTokenDep = Annotated[str, Depends(oauth2_scheme)]
 token_auth_scheme = HTTPBearer()
+HTTPExtractTokenDep = Annotated[HTTPAuthorizationCredentials, Depends(token_auth_scheme)]
 
 
 # @app.post(path="/create-student", dependencies=[Depends(verify_token_for_create_student_endpoint)])
 @app.post(path="/create-student")
-async def create_student(*, session: GetSessionDep, student: StudentPydanticModel, authorization: Annotated[HTTPAuthorizationCredentials, Depends(token_auth_scheme)]):
+async def create_student(*, session: GetSessionDep, student: StudentPydanticModel, authorization: HTTPExtractTokenDep):
     token = authorization.credentials
     if await decode_and_validate_token(token=token, token_expected="create_student_token"):
         db_student = crud.create_student(session, student)
@@ -95,7 +96,7 @@ def verify_student(student: StudentPydanticModel, session: GetSessionDep):
 
 
 @app.get(path="/generate-registration-options")
-async def handler_generate_registration_options(*, matric_number: str, session: GetSessionDep, authorization: Annotated[HTTPAuthorizationCredentials, Depends(token_auth_scheme)]):
+async def handler_generate_registration_options(*, matric_number: str, session: GetSessionDep, authorization: HTTPExtractTokenDep):
     token = authorization.credentials
     # decode_and_validate_token here can only return True if anything wrong happens it raises a credential error
     validated = await decode_and_validate_token(token=token, token_expected="create_student_token")
@@ -111,9 +112,9 @@ async def handler_generate_registration_options(*, matric_number: str, session: 
 
 
 @app.post(path="/verify-registration-response")
-async def handler_verify_registration_response(*, request: Request, session: GetSessionDep, token: ExtractTokenDep):
-
-    matric_number = await decode_and_validate_token(token=token, session=session)
+async def handler_verify_registration_response(*, matric_number: str, request: Request, session: GetSessionDep, authorization: HTTPExtractTokenDep):
+    token = authorization.credentials
+    validated = await decode_and_validate_token(token=token, token_expected="create_student_token")
 
     credential: dict = await request.json()  # returns a json object
     db_student = crud.get_student(session, matric_number)
