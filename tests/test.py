@@ -57,7 +57,7 @@ def test_create_student(client: TestClient):
 
 def test_verify_student(session: Session, client: TestClient):
     student = Student(
-        matric_number="21CG029883", password=get_password_hash("password"))
+        matric_number="21CG029883", password=get_password_hash("password"), device_registered=True)
 
     session.add(student)
     session.commit()
@@ -91,6 +91,19 @@ def test_verify_student_wrong_info(client: TestClient):
 
     assert response.status_code == 401
 
+def test_verify_student_unregistered_device(client: TestClient, session: Session):
+    student = Student(
+        matric_number="21CG029883", password=get_password_hash("password"))
+
+    session.add(student)
+    session.commit()
+
+    response = client.post(
+        "/verify-student",
+        json={"matric_number": "21cg029883", "password": "password"}
+    )
+
+    assert response.status_code == 403
 
 def test_generate_registration_options(session: Session, client: TestClient):
     student = Student(
