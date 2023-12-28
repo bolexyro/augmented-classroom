@@ -52,7 +52,8 @@ def get_session():
 GetSessionDep = Annotated[Session, Depends(get_session)]
 ExtractTokenDep = Annotated[str, Depends(oauth2_scheme)]
 token_auth_scheme = HTTPBearer()
-HTTPExtractTokenDep = Annotated[HTTPAuthorizationCredentials, Depends(token_auth_scheme)]
+HTTPExtractTokenDep = Annotated[HTTPAuthorizationCredentials, Depends(
+    token_auth_scheme)]
 
 
 # @app.post(path="/create-student", dependencies=[Depends(verify_token_for_create_student_endpoint)])
@@ -62,8 +63,8 @@ async def create_student(*, session: GetSessionDep, student: StudentPydanticMode
     if await decode_and_validate_token(token=token, token_expected="create_student_token"):
         db_student = crud.create_student(session, student)
         if db_student:
-            response_data = {"message": "Student created."}
-            return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)
+            student.password = "sike, you thought you were getting the original thing"
+            return student.model_dump(exclude_unset=True)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="Student already exists.")
 

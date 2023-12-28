@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import os
 from sqlmodel import Session
-from . import crud
 
 load_dotenv(".env")
 
@@ -49,8 +48,8 @@ def create_access_refresh_token(data: dict, expires_delta: timedelta | None = No
     return encoded_jwt
 
 
-async def decode_and_validate_token(token: str, session: Session | None = None , token_expected: str = "access") -> Annotated[str | bool, "The matric number of the user or True"]:
-    from . import crud 
+async def decode_and_validate_token(token: str, session: Session | None = None, token_expected: str = "access") -> Annotated[str | bool, "The matric number of the user or True"]:
+    from . import crud
     try:
         if not session:
             assert token_expected == "create_student_token"

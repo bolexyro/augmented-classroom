@@ -1,18 +1,16 @@
+import os
 import sys
 import pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
-print(sys.path)
-import os
-import pytest
-from dotenv import load_dotenv
-
-from fastapi.testclient import TestClient
-from sqlmodel.pool import StaticPool
-from sqlmodel import SQLModel, create_engine, Session
-
-from app.models import Student
-from app.utils import get_password_hash
 from main import get_session, app
+from app.utils import get_password_hash
+from app.models import Student
+from sqlmodel import SQLModel, create_engine, Session
+from sqlmodel.pool import StaticPool
+from fastapi.testclient import TestClient
+from dotenv import load_dotenv
+import pytest
+
 load_dotenv(".env")
 
 
@@ -45,15 +43,16 @@ def client_fixture(session: Session):
 
 
 def test_create_student(client: TestClient):
-    auth = f"Bearer {authorization_token_for_create_student}"
+    
     response = client.post(
         url="/create-student",
-        headers={"Authorization": auth},
+        headers={"Authorization": f"Bearer {authorization_token_for_create_student}"},
         json={"matric_number": "21cg029882", "password": "password"}
     )
     print(response.text)
     assert response.status_code == 200
-    assert response.json() == {"message": "Student created."}
+    assert response.json() == {
+        "matric_number": "21CG029882", "password": "sike, you thought you were getting the original thing"}
 
 
 def test_verify_student(session: Session, client: TestClient):
@@ -102,8 +101,8 @@ def test_generate_registration_options(session: Session, client: TestClient):
     session.commit()
 
     response = client.get(
-        url="/generate-registration-options",
-        headers={"Authorization": "Bearer " + test_access_token}
+        url="/generate-registration-options?matric_number=21CG029882",
+        headers={"Authorization": f"Bearer {authorization_token_for_create_student}"}
     )
     assert response.status_code == 200
 
