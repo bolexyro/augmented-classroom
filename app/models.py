@@ -11,8 +11,6 @@ class BaseStudent(SQLModel):
     sign_count: int | None = None
     user_id: UUID | None = None
     transports: str | None = None
-    registration_challenge: bytes | None = None
-    authentication_challenge: bytes | None = None
 
 
 class Student(BaseStudent, table=True):

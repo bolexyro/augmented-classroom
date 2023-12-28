@@ -95,6 +95,9 @@ def verify_student(student: StudentPydanticModel, session: GetSessionDep):
 
     return TokenResponse(access_token=access_token, token_type="bearer", refresh_token=refresh_token)
 
+# This registration challenge and authentication challenge, they are meant to be used just once. So I think i am going to delete them from the database
+# and just store them in a dict
+registration_challenges: dict[Annotated[str, "The matric number of a student"], Annotated[bytes, "The registration challenge associated with that user"]] = {}
 
 @app.get(path="/generate-registration-options")
 async def handler_generate_registration_options(*, matric_number: str, session: GetSessionDep, authorization: HTTPExtractTokenDep):
@@ -104,7 +107,8 @@ async def handler_generate_registration_options(*, matric_number: str, session: 
     user_id: uuid.UUID = uuid.uuid4()
     registration_challenge: bytes = os.urandom(32)
     update_data = StudentUpdateModel(
-        user_id=user_id, registration_challenge=registration_challenge)
+        user_id=user_id)
+    registration_challenges[matric_number] = registration_challenge
     crud.update_student(session, matric_number, update_data)
     options = generate_registration_options_function(
         RP_ID=RP_ID, user_id=user_id, matric_number=matric_number, registration_challenge=registration_challenge)
@@ -118,17 +122,18 @@ async def handler_verify_registration_response(*, matric_number: str, request: R
     validated = await decode_and_validate_token(token=token, token_expected="create_student_token")
 
     credential: dict = await request.json()  # returns a json object
-    db_student = crud.get_student(session, matric_number)
-    registration_challenge: bytes = bytes(
-        db_student.registration_challenge)
+    registration_challenge = registration_challenges[matric_number]
 
     verification, transports_string = verify_registration_options_function(
         credential=credential, registration_challenge=registration_challenge, RP_ID=RP_ID, WEBAUTHN_ORIGIN=WEBAUTHN_ORIGIN)
     update_data = StudentUpdateModel(credential_id=verification.credential_id, public_key=verification.credential_public_key,
                                      sign_count=verification.sign_count, transports=transports_string)
     crud.update_student(session, matric_number, update_data)
+    del registration_challenges[matric_number]
     return JSONResponse(status_code=status.HTTP_200_OK, content={"verified": True})
 
+
+authentication_challenges: dict[Annotated[str, "The matric number of a student"], Annotated[bytes, "The authentication challenge associated with that user"]] = {}
 
 @app.get(path="/generate-authentication-options")
 async def handler_generate_authentication_options(session: GetSessionDep, token: ExtractTokenDep):
@@ -140,8 +145,7 @@ async def handler_generate_authentication_options(session: GetSessionDep, token:
     credential_id, transports = db_student.credential_id, db_student.transports
     credential_id: bytes = bytes(credential_id)
 
-    crud.update_student(session, matric_number, StudentUpdateModel(
-        authentication_challenge=authentication_challenge))
+    authentication_challenges[matric_number] = authentication_challenge
     options = generate_authentication_options_functions(
         RP_ID=RP_ID, credential_id=credential_id, transports=transports, authentication_challenge=authentication_challenge)
 
@@ -158,10 +162,9 @@ async def hander_verify_authentication_response(*, request: Request, session: Ge
 
     db_student = crud.get_student(session, matric_number)
     # We are assuming that when we are calling this endpoint all this info would be available in the datbase. like the stuent would have already registered
-    credential_id, authentication_challenge, public_key, sign_count = db_student.credential_id, db_student.authentication_challenge, db_student.public_key, db_student.sign_count
-
+    credential_id, public_key, sign_count = db_student.credential_id, db_student.public_key, db_student.sign_count
+    authentication_challenge = authentication_challenges[matric_number]
     credential_id: bytes = bytes(credential_id)
-    authentication_challenge: bytes = bytes(authentication_challenge)
     public_key: bytes = bytes(public_key)
     verification = verify_authentication_options_function(credential_id=credential_id, raw_id_bytes=raw_id_bytes, credential=credential,
                                                           authentication_challenge=authentication_challenge, public_key=public_key, sign_count=sign_count, RP_ID=RP_ID, WEBAUTHN_ORIGIN=WEBAUTHN_ORIGIN)

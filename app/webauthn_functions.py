@@ -55,11 +55,7 @@ def verify_registration_options_function(credential: dict, registration_challeng
         # I am meant to store the credential and the user attached to this credential
         transports: list = credential["response"]["transports"]
         transports_string: str = ""
-        lenght_transports: int = len(transports)
-        for i, transport in enumerate(transports):
-            transports_string += transport
-            if i != lenght_transports - 1:
-                transports_string += ","
+        transports_string = ",".join(transports)
     except Exception as err:
         print(err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
