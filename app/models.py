@@ -11,6 +11,7 @@ class BaseStudent(SQLModel):
     sign_count: int | None = None
     user_id: UUID | None = None
     transports: str | None = None
+    device_registered: bool = False
 
 
 class Student(BaseStudent, table=True):
