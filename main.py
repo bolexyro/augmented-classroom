@@ -143,7 +143,6 @@ async def handler_generate_authentication_options(session: GetSessionDep, token:
     db_student = crud.get_student(session, matric_number)
     # we are pretty much assuming that all these thigns have a non null value in the database
     credential_id, transports = db_student.credential_id, db_student.transports
-    credential_id: bytes = bytes(credential_id)
 
     authentication_challenges[matric_number] = authentication_challenge
     options = generate_authentication_options_functions(
@@ -164,8 +163,7 @@ async def hander_verify_authentication_response(*, request: Request, session: Ge
     # We are assuming that when we are calling this endpoint all this info would be available in the datbase. like the stuent would have already registered
     credential_id, public_key, sign_count = db_student.credential_id, db_student.public_key, db_student.sign_count
     authentication_challenge = authentication_challenges[matric_number]
-    credential_id: bytes = bytes(credential_id)
-    public_key: bytes = bytes(public_key)
+
     verification = verify_authentication_options_function(credential_id=credential_id, raw_id_bytes=raw_id_bytes, credential=credential,
                                                           authentication_challenge=authentication_challenge, public_key=public_key, sign_count=sign_count, RP_ID=RP_ID, WEBAUTHN_ORIGIN=WEBAUTHN_ORIGIN)
     # Update our credential's sign count to what the authenticator says it is now
