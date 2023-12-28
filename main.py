@@ -95,8 +95,10 @@ def verify_student(student: StudentPydanticModel, session: GetSessionDep):
 
 
 @app.get(path="/generate-registration-options")
-async def handler_generate_registration_options(*, session: GetSessionDep, token: ExtractTokenDep):
-    matric_number = await decode_and_validate_token(token=token, session=session)
+async def handler_generate_registration_options(*, matric_number: str, session: GetSessionDep, authorization: Annotated[HTTPAuthorizationCredentials, Depends(token_auth_scheme)]):
+    token = authorization.credentials
+    # decode_and_validate_token here can only return True if anything wrong happens it raises a credential error
+    validated = await decode_and_validate_token(token=token, session=session, token_expected="create_student_token")
     user_id: uuid.UUID = uuid.uuid4()
     registration_challenge: bytes = os.urandom(32)
     update_data = StudentUpdateModel(
@@ -153,6 +155,7 @@ async def hander_verify_authentication_response(*, request: Request, session: Ge
     raw_id_bytes: bytes = base64url_to_bytes(credential["rawId"])
 
     db_student = crud.get_student(session, matric_number)
+    # We are assuming that when we are calling this endpoint all this info would be available in the datbase. like the stuent would have already registered
     credential_id, authentication_challenge, public_key, sign_count = db_student.credential_id, db_student.authentication_challenge, db_student.public_key, db_student.sign_count
 
     credential_id: bytes = bytes(credential_id)

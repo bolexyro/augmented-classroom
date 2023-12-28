@@ -53,7 +53,6 @@ async def decode_and_validate_token(token: str, session: Session | None = None ,
     from . import crud 
     try:
         if not session:
-            print("hello world")
             assert token_expected == "create_student_token"
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             message: str = payload.get("sub")
@@ -71,5 +70,5 @@ async def decode_and_validate_token(token: str, session: Session | None = None ,
         raise credentials_exception
     db_student = crud.get_student(session, matric_number)
     if not db_student:
-        raise credentials_exception
+        raise incorrent_matric_number_or_password_exception
     return db_student.matric_number
