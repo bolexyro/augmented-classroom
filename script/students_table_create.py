@@ -24,7 +24,8 @@ credential_id bytea,
 public_key bytea,
 sign_count INTEGER,
 user_id UUID,
-transports TEXT
+transports TEXT,
+device_registered BOOLEAN
 )
 """
 
