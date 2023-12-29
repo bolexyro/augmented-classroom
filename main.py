@@ -75,7 +75,8 @@ def verify_student(student: StudentPydanticModel, session: GetSessionDep):
     if not db_student:
         raise incorrent_matric_number_or_password_exception
     if not db_student.device_registered:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your have not registered your device. Register your device before attempting to log in.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Your have not registered your device. Register your device before attempting to log in.")
     retrieved_password: Annotated[str,
                                   "The hashed password"] = db_student.password
     if not verify_password(student.password, retrieved_password):
@@ -93,7 +94,9 @@ def verify_student(student: StudentPydanticModel, session: GetSessionDep):
     return TokenResponse(access_token=access_token, token_type="bearer", refresh_token=refresh_token)
 
 
-registration_challenges: dict[Annotated[str, "The matric number of a student"], Annotated[bytes, "The registration challenge associated with that user"]] = {}
+registration_challenges: dict[Annotated[str, "The matric number of a student"],
+                              Annotated[bytes, "The registration challenge associated with that user"]] = {}
+
 
 @app.get(path="/generate-registration-options")
 async def handler_generate_registration_options(*, matric_number: str, session: GetSessionDep, authorization: HTTPExtractTokenDep):
@@ -129,7 +132,9 @@ async def handler_verify_registration_response(*, matric_number: str, request: R
     return JSONResponse(status_code=status.HTTP_200_OK, content={"verified": True})
 
 
-authentication_challenges: dict[Annotated[str, "The matric number of a student"], Annotated[bytes, "The authentication challenge associated with that user"]] = {}
+authentication_challenges: dict[Annotated[str, "The matric number of a student"],
+                                Annotated[bytes, "The authentication challenge associated with that user"]] = {}
+
 
 @app.get(path="/generate-authentication-options")
 async def handler_generate_authentication_options(session: GetSessionDep, token: ExtractTokenDep):
@@ -165,7 +170,7 @@ async def hander_verify_authentication_response(*, request: Request, session: Ge
     # Update our credential's sign count to what the authenticator says it is now
     crud.update_student(session, matric_number, StudentUpdateModel(
         sign_count=verification.new_sign_count))
-
+    del authentication_challenges[matric_number]
     return JSONResponse(content={"verified": True}, status_code=status.HTTP_200_OK)
 
 
