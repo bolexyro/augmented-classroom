@@ -4,7 +4,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import app.crud as crud
 from app.database import engine
 from app.models import StudentPydanticModel, RefreshToken, TokenResponse, StudentUpdateModel
-from app.utils import create_access_refresh_token, decode_and_validate_token, verify_password, oauth2_scheme, credentials_exception, incorrent_matric_number_or_password_exception
+from app.utils import create_access_refresh_token, decode_and_validate_token, verify_password, oauth2_scheme, credentials_exception, incorrect_matric_number_or_password_exception
 from app.webauthn_functions import generate_registration_options_function, verify_registration_options_function, generate_authentication_options_functions, verify_authentication_options_function
 from sqlmodel import Session
 from fastapi.responses import JSONResponse
@@ -73,7 +73,7 @@ async def create_student(*, session: GetSessionDep, student: StudentPydanticMode
 def verify_student(student: StudentPydanticModel, session: GetSessionDep):
     db_student = crud.get_student(session, student.matric_number)
     if not db_student:
-        raise incorrent_matric_number_or_password_exception
+        raise incorrect_matric_number_or_password_exception
     if not db_student.device_registered:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Your have not registered your device. Register your device before attempting to log in.")
@@ -81,7 +81,7 @@ def verify_student(student: StudentPydanticModel, session: GetSessionDep):
                                   "The hashed password"] = db_student.password
     if not verify_password(student.password, retrieved_password):
         # Wrong password
-        raise incorrent_matric_number_or_password_exception
+        raise incorrect_matric_number_or_password_exception
     access_token_expires = timedelta(
         minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_refresh_token(

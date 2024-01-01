@@ -18,7 +18,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="verify-student")
 token_auth_scheme = HTTPBearer()
 
-incorrent_matric_number_or_password_exception = HTTPException(
+incorrect_matric_number_or_password_exception = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Incorrent matric number or password.")
 
@@ -69,5 +69,5 @@ async def decode_and_validate_token(token: str, session: Session | None = None, 
         raise credentials_exception
     db_student = crud.get_student(session, matric_number)
     if not db_student:
-        raise incorrent_matric_number_or_password_exception
+        raise incorrect_matric_number_or_password_exception
     return db_student.matric_number
